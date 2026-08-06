@@ -1,0 +1,23 @@
+from fastapi import FastAPI
+
+from app.routers.jobs import router as jobs_router
+from app.routers.cai_chat import router as cai_chat_router
+from app.settings import get_settings
+
+app = FastAPI(title="Blue Team Backend", version="0.1.0")
+app.include_router(jobs_router)
+app.include_router(cai_chat_router)
+
+
+@app.get("/health")
+def health():
+    s = get_settings()
+    return {"status": "ok", "llm_model": s.llm_model, "llm_stub": s.stub_llm}
+
+
+@app.get("/ready")
+def ready():
+    s = get_settings()
+    if not s.stub_llm and not s.openai_api_key:
+        return {"status": "not_ready", "reason": "OPENAI_API_KEY missing"}
+    return {"status": "ready"}

@@ -1,0 +1,930 @@
+openapi: 3.0.3
+info:
+  title: Red/Blue Platform API
+  version: 0.1.0
+  description: >
+    Central api_service contract for analyst CRUD, job orchestration,
+    and worker result reporting. Spec feature 001-red-blue-platform.
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local api_service
+tags:
+  - name: health
+  - name: assets
+  - name: scans
+  - name: findings
+  - name: threat-events
+  - name: attack-chains
+  - name: jobs
+  - name: patches
+  - name: tool-runs
+  - name: roles
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /ready:
+    get:
+      tags: [health]
+      summary: Readiness (database reachable)
+      security: []
+      responses:
+        "200":
+          description: Ready
+        "503":
+          description: Not ready
+  /assets:
+    get:
+      tags: [assets]
+      summary: List assets
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Asset list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Asset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [assets]
+      summary: Create asset
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /assets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [assets]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Asset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [assets]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetCreate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [assets]
+      summary: Delete asset (admin only)
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /scans:
+    get:
+      tags: [scans]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: team
+          in: query
+          schema:
+            $ref: "#/components/schemas/TeamSide"
+      responses:
+        "200":
+          description: Scan list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Scan"
+    post:
+      tags: [scans]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scan"
+  /scans/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [scans]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Scan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scan"
+    patch:
+      tags: [scans]
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanPatch"
+      responses:
+        "200":
+          description: Updated
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [scans]
+      summary: Delete scan (admin only)
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /findings:
+    get:
+      tags: [findings]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: team
+          in: query
+          schema:
+            $ref: "#/components/schemas/TeamSide"
+      responses:
+        "200":
+          description: Findings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Finding"
+    post:
+      tags: [findings]
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FindingCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Finding"
+  /findings/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    patch:
+      tags: [findings]
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FindingPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Finding"
+  /threat-events:
+    get:
+      tags: [threat-events]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: team
+          in: query
+          schema:
+            $ref: "#/components/schemas/TeamSide"
+      responses:
+        "200":
+          description: Threat events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ThreatEvent"
+    post:
+      tags: [threat-events]
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThreatEventCreate"
+      responses:
+        "201":
+          description: Created
+  /attack-chains:
+    get:
+      tags: [attack-chains]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Chains
+    post:
+      tags: [attack-chains]
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttackChainCreate"
+      responses:
+        "201":
+          description: Created
+  /attack-chains/{id}/steps:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [attack-chains]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Steps
+    post:
+      tags: [attack-chains]
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttackChainStepCreate"
+      responses:
+        "201":
+          description: Created
+  /jobs:
+    get:
+      tags: [jobs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: team
+          in: query
+          schema:
+            $ref: "#/components/schemas/TeamSide"
+      responses:
+        "200":
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+    post:
+      tags: [jobs]
+      summary: Create job and dispatch to red/blue worker
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobCreate"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "422":
+          description: Validation error (e.g. empty asset_ids)
+  /jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    get:
+      tags: [jobs]
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      responses:
+        "200":
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+    patch:
+      tags: [jobs]
+      summary: Update job status/progress (workers)
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobPatch"
+      responses:
+        "200":
+          description: Updated
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /jobs/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    post:
+      tags: [jobs]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /patches:
+    get:
+      tags: [patches]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Patches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Patch"
+    post:
+      tags: [patches]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchCreate"
+      responses:
+        "201":
+          description: Created
+  /patches/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdPath"
+    patch:
+      tags: [patches]
+      summary: Update patch status; applied remediates finding
+      security:
+        - bearerAuth: []
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchPatch"
+      responses:
+        "200":
+          description: Updated
+  /tool-runs:
+    post:
+      tags: [tool-runs]
+      security:
+        - serviceToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolRunCreate"
+      responses:
+        "201":
+          description: Created
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /roles:
+    get:
+      tags: [roles]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Roles
+    post:
+      tags: [roles]
+      summary: Assign role (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Created
+        "403":
+          $ref: "#/components/responses/Forbidden"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+    Forbidden:
+      description: Authenticated but not allowed
+    NotFound:
+      description: Resource not found
+    Conflict:
+      description: Illegal state transition (e.g. cancelled job)
+  schemas:
+    TeamSide:
+      type: string
+      enum: [red, blue]
+    JobStatus:
+      type: string
+      enum: [queued, dispatched, running, completed, failed, cancelled]
+    PatchStatus:
+      type: string
+      enum: [proposed, approved, applied, failed, rolled_back]
+    Asset:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        hostname:
+          type: string
+          nullable: true
+        ip_address:
+          type: string
+          nullable: true
+        kind:
+          type: string
+          nullable: true
+        criticality:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    AssetCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        hostname:
+          type: string
+        ip_address:
+          type: string
+        kind:
+          type: string
+        criticality:
+          type: string
+    Scan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        target:
+          type: string
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        profile:
+          type: string
+        status:
+          type: string
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        source_service:
+          type: string
+          nullable: true
+        findings_count:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+    ScanCreate:
+      type: object
+      required: [target, profile]
+      properties:
+        target:
+          type: string
+        asset_id:
+          type: string
+          format: uuid
+        profile:
+          type: string
+        team:
+          $ref: "#/components/schemas/TeamSide"
+    ScanPatch:
+      type: object
+      properties:
+        status:
+          type: string
+        findings_count:
+          type: integer
+        finished_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+    Finding:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        scan_id:
+          type: string
+          format: uuid
+          nullable: true
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        cve:
+          type: string
+          nullable: true
+        severity:
+          type: string
+        status:
+          type: string
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        source_tool:
+          type: string
+          nullable: true
+        remediation:
+          type: string
+          nullable: true
+        evidence:
+          type: string
+          nullable: true
+    FindingCreate:
+      type: object
+      required: [title, severity]
+      properties:
+        scan_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        cve:
+          type: string
+        severity:
+          type: string
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        source_tool:
+          type: string
+        remediation:
+          type: string
+        evidence:
+          type: string
+        status:
+          type: string
+    FindingPatch:
+      type: object
+      properties:
+        status:
+          type: string
+        remediation:
+          type: string
+        evidence:
+          type: string
+    ThreatEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        technique:
+          type: string
+          nullable: true
+        technique_name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        severity:
+          type: string
+        status:
+          type: string
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        source_tag:
+          type: string
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+    ThreatEventCreate:
+      type: object
+      properties:
+        scan_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        finding_id:
+          type: string
+          format: uuid
+        technique:
+          type: string
+        technique_name:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+        status:
+          type: string
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        source_tag:
+          type: string
+        raw_payload:
+          type: object
+          additionalProperties: true
+    AttackChainCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        scan_id:
+          type: string
+          format: uuid
+        team:
+          $ref: "#/components/schemas/TeamSide"
+    AttackChainStepCreate:
+      type: object
+      required: [stage, sequence, title]
+      properties:
+        stage:
+          type: string
+        sequence:
+          type: integer
+        title:
+          type: string
+        severity:
+          type: string
+        threat_event_id:
+          type: string
+          format: uuid
+        finding_id:
+          type: string
+          format: uuid
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        profile:
+          type: string
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        asset_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        requested_by:
+          type: string
+          format: uuid
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    JobCreate:
+      type: object
+      required: [team, profile, asset_ids]
+      properties:
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        profile:
+          type: string
+          example: surface-recon
+        asset_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+        tools:
+          type: array
+          items:
+            type: string
+          nullable: true
+    JobPatch:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        error:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+    Patch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        finding_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        playbook:
+          type: string
+        status:
+          $ref: "#/components/schemas/PatchStatus"
+        evidence:
+          type: array
+          items: {}
+        applied_at:
+          type: string
+          format: date-time
+          nullable: true
+    PatchCreate:
+      type: object
+      required: [finding_id, title, playbook]
+      properties:
+        finding_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        playbook:
+          type: string
+    PatchPatch:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/PatchStatus"
+        evidence:
+          type: array
+          items: {}
+    ToolRunCreate:
+      type: object
+      required: [job_id, team, tool_name]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        team:
+          $ref: "#/components/schemas/TeamSide"
+        tool_name:
+          type: string
+        command_summary:
+          type: string
+        exit_code:
+          type: integer
+        raw_output:
+          type: object
+          additionalProperties: true
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time

@@ -1,0 +1,207 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * SecureDash design system — instrument panel, single ember accent.
+ * Ember is reserved for severity/status signaling, the primary Run scan CTA,
+ * and live/critical emphasis. Never for nav active states or decoration.
+ */
+
+@theme inline {
+  --radius-sm: var(--radius-sm-v);
+  --radius-md: var(--radius-md-v);
+  --radius-lg: var(--radius-md-v);
+
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--surface-raised);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--accent-ember);
+  --color-primary-foreground: oklch(0.16 0.002 285);
+  --color-secondary: var(--surface-raised);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--surface);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--surface-raised);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--severity-critical);
+  --color-destructive-foreground: var(--text-primary);
+  --color-border: var(--border-hairline);
+  --color-input: var(--border-hairline);
+  --color-ring: var(--accent-ember);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-ember: var(--accent-ember);
+  --color-ember-dim: var(--accent-ember-dim);
+
+  --color-sev-critical: var(--severity-critical);
+  --color-sev-high: var(--severity-high);
+  --color-sev-medium: var(--severity-medium);
+  --color-sev-low: var(--severity-low);
+  --color-sev-info: var(--severity-info);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --bg-base: oklch(0.16 0.002 285);
+  --surface: oklch(0.22 0.003 285);
+  --surface-raised: oklch(0.26 0.004 285);
+  --border-hairline: oklch(0.38 0.004 285 / 0.6);
+
+  --text-primary: oklch(0.92 0.002 285);
+  --text-secondary: oklch(0.7 0.004 285);
+  --text-muted: oklch(0.52 0.004 285);
+
+  --accent-ember: oklch(0.64 0.19 35);
+  --accent-ember-dim: oklch(0.64 0.19 35 / 0.15);
+  --glow-ember:
+    0 0 0 1px oklch(0.64 0.19 35 / 0.35), 0 0 16px oklch(0.64 0.19 35 / 0.2);
+
+  --severity-critical: oklch(0.62 0.2 32);
+  --severity-high: oklch(0.68 0.15 48);
+  --severity-medium: oklch(0.74 0.1 68);
+  --severity-low: oklch(0.68 0.04 70);
+  --severity-info: oklch(0.55 0.01 260);
+
+  --radius-sm-v: 4px;
+  --radius-md-v: 6px;
+}
+
+@layer base {
+  * {
+    border-color: var(--border-hairline);
+  }
+
+  html,
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--accent-ember-dim);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--accent-ember);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm-v);
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--surface-raised);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@utility mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+@utility eyebrow {
+  font-size: 12px;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+@utility micro {
+  font-size: 11px;
+  line-height: 14px;
+}
+
+@utility hairline {
+  border: 1px solid var(--border-hairline);
+}
+
+@utility panel {
+  background: var(--surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md-v);
+}
+
+@utility panel-raised {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md-v);
+}
+
+@utility glow-ember {
+  box-shadow: var(--glow-ember);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes sd-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes sd-flash {
+  from {
+    background-color: var(--accent-ember-dim);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes sd-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@utility live-dot {
+  animation: sd-pulse 1.6s ease-in-out infinite;
+}
+
+@utility skeleton-pulse {
+  animation: sd-pulse 2.2s ease-in-out infinite;
+  background: var(--surface-raised);
+  border-radius: var(--radius-sm-v);
+}
+
+@utility row-flash {
+  animation: sd-flash 1.2s ease-out 1;
+}
+
+@utility indeterminate-bar {
+  animation: sd-indeterminate 1.4s ease-in-out infinite;
+}

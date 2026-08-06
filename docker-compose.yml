@@ -1,0 +1,88 @@
+services:
+  api_service:
+    build: ./api_service
+    ports:
+      - "8000:8000"
+    # Root .env is source of truth for Supabase URL/keys (avoid shell overrides).
+    env_file: .env
+    environment:
+      RED_SERVICE_TOKEN: ${RED_SERVICE_TOKEN:-change-me-red}
+      BLUE_SERVICE_TOKEN: ${BLUE_SERVICE_TOKEN:-change-me-blue}
+      RED_WORKER_URL: http://red_team_backend:8001
+      BLUE_WORKER_URL: http://blue_team_backend:8002
+      # Explicitly do NOT pass OPENAI_API_KEY / LLM_MODEL here
+      # User JWTs verified via JWKS; JWT secret optional legacy fallback only
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - red_team_backend
+      - blue_team_backend
+
+  red_team_backend:
+    build: ./red_team_backend
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_STUB: ${LLM_STUB:-1}
+      API_BASE_URL: http://api_service:8000/api/v1
+      RED_SERVICE_TOKEN: ${RED_SERVICE_TOKEN:-change-me-red}
+      DEMO_SAFE_MODE: ${DEMO_SAFE_MODE:-1}
+      TARGET_ALLOWLIST: ${TARGET_ALLOWLIST:-}
+      HEXSTRIKE_BASE_URL: ${HEXSTRIKE_BASE_URL:-http://host.docker.internal:8888}
+      HEXSTRIKE_STUB: ${HEXSTRIKE_STUB:-0}
+      CAI_WORKDIR: ${CAI_WORKDIR:-/cai}
+      CAI_STUB: ${CAI_STUB:-0}
+      CAI_CHAT_STUB: ${CAI_CHAT_STUB:-1}
+      CAI_AGENT_TYPE: ${CAI_AGENT_TYPE:-redteam_agent}
+      CAI_CONTAINER_VENV: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
+      UV_PROJECT_ENVIRONMENT: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
+      # No DATABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY
+    volumes:
+      - ${CAI_HOST_PATH:-../cai_pentesting}:/cai
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  blue_team_backend:
+    build: ./blue_team_backend
+    ports:
+      - "8002:8002"
+    env_file: .env
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_STUB: ${LLM_STUB:-1}
+      API_BASE_URL: http://api_service:8000/api/v1
+      BLUE_SERVICE_TOKEN: ${BLUE_SERVICE_TOKEN:-change-me-blue}
+      DEMO_SAFE_MODE: ${DEMO_SAFE_MODE:-1}
+      TARGET_ALLOWLIST: ${TARGET_ALLOWLIST:-}
+      HEXSTRIKE_BASE_URL: ${HEXSTRIKE_BASE_URL:-http://host.docker.internal:8888}
+      HEXSTRIKE_STUB: ${HEXSTRIKE_STUB:-0}
+      CAI_WORKDIR: ${CAI_WORKDIR:-/cai}
+      CAI_STUB: ${CAI_STUB:-0}
+      CAI_CHAT_STUB: ${CAI_CHAT_STUB:-1}
+      CAI_AGENT_TYPE: ${CAI_AGENT_TYPE_BLUE:-bug_bounter_agent}
+      CAI_CONTAINER_VENV: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
+      UV_PROJECT_ENVIRONMENT: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
+      # No DATABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY
+    volumes:
+      - ${CAI_HOST_PATH:-../cai_pentesting}:/cai
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

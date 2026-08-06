@@ -1,0 +1,37 @@
+name: platform-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    env:
+      LLM_STUB: "1"
+      API_STORE: memory
+      SUPABASE_JWT_SECRET: test-secret-at-least-32-chars-long!!
+      RED_SERVICE_TOKEN: change-me-red
+      BLUE_SERVICE_TOKEN: change-me-blue
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: API tests
+        working-directory: api_service
+        run: |
+          pip install -r requirements.txt
+          pytest -q
+      - name: Red worker tests
+        working-directory: red_team_backend
+        run: |
+          pip install -r requirements.txt
+          pytest -q
+      - name: Blue worker tests
+        working-directory: blue_team_backend
+        run: |
+          pip install -r requirements.txt
+          pytest -q
+      - name: Env isolation smoke
+        run: bash scripts/smoke_env_isolation.sh

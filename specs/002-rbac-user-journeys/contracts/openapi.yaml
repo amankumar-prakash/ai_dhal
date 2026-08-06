@@ -1,0 +1,590 @@
+openapi: 3.0.3
+info:
+  title: SentryOps RBAC Journeys API
+  version: 0.2.0
+  description: >
+    Post-clarify (2026-08-04): Admin may assign admin role; task notes/links;
+    Manager complete/review/close; multi-type tool unlock is route-level.
+servers:
+  - url: /api/v1
+tags:
+  - name: admin
+  - name: tasks
+  - name: notifications
+  - name: me
+paths:
+  /me:
+    get:
+      tags: [me]
+      summary: Current profile, role, must_change_password
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+  /me/password:
+    post:
+      tags: [me]
+      summary: Complete forced password change
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_password]
+              properties:
+                new_password:
+                  type: string
+                  minLength: 12
+      responses:
+        "204":
+          description: Password updated
+  /admin/users:
+    get:
+      tags: [admin]
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+        "403":
+          description: Forbidden
+    post:
+      tags: [admin]
+      summary: Create user (any role including admin), issue one-time credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserCreate"
+      responses:
+        "201":
+          description: Created; credentials once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserCreateResponse"
+  /admin/users/{id}:
+    patch:
+      tags: [admin]
+      summary: Update role/status including demote/disable Admin (no last-Admin guard)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserPatch"
+      responses:
+        "200":
+          description: Updated
+  /admin/users/{id}/credentials:
+    post:
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Re-issued credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OneTimeCredentials"
+  /tasks:
+    get:
+      tags: [tasks]
+      parameters:
+        - name: assignee_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: task_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskType"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskStatus"
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      tags: [tasks]
+      summary: Create task (Manager)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /tasks/{id}:
+    get:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Task detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    patch:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskPatch"
+      responses:
+        "200":
+          description: Updated
+  /tasks/{id}/start:
+    post:
+      tags: [tasks]
+      summary: Start (assignee or Manager on-behalf)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: In progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /tasks/{id}/complete:
+    post:
+      tags: [tasks]
+      summary: Complete (assignee or Manager)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Completed
+        "403":
+          description: Forbidden
+  /tasks/{id}/review:
+    post:
+      tags: [tasks]
+      summary: Reviewed (Manager only)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Reviewed
+        "403":
+          description: Analyst denied
+  /tasks/{id}/close:
+    post:
+      tags: [tasks]
+      summary: Closed (Manager only)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Closed
+        "403":
+          description: Analyst denied
+  /tasks/{id}/reassign:
+    post:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignee_id]
+              properties:
+                assignee_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Reassigned
+  /tasks/{id}/notes:
+    get:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskNote"
+    post:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+      responses:
+        "201":
+          description: Note created
+  /tasks/{id}/links:
+    get:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Links
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskLink"
+    post:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskLinkCreate"
+      responses:
+        "201":
+          description: Link created
+  /tasks/{id}/audit:
+    get:
+      tags: [tasks]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Audit log
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAuditEvent"
+  /notifications:
+    get:
+      tags: [notifications]
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Notification"
+  /notifications/{id}/read:
+    post:
+      tags: [notifications]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Marked read
+components:
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    TaskType:
+      type: string
+      enum: [red, blue]
+    TaskStatus:
+      type: string
+      enum: [draft, assigned, in_progress, blocked, completed, reviewed, closed]
+    AppRole:
+      type: string
+      enum: [user, security_analyst, security_manager, admin]
+    Me:
+      type: object
+      required: [user_id, role, status, must_change_password]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          $ref: "#/components/schemas/AppRole"
+        status:
+          type: string
+          enum: [pending, active, disabled]
+        must_change_password:
+          type: boolean
+        display_name:
+          type: string
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        display_name:
+          type: string
+        role:
+          $ref: "#/components/schemas/AppRole"
+        status:
+          type: string
+          enum: [pending, active, disabled]
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        invite_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    AdminUserCreate:
+      type: object
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        role:
+          $ref: "#/components/schemas/AppRole"
+          description: Includes admin
+    AdminUserCreateResponse:
+      type: object
+      required: [user, credentials]
+      properties:
+        user:
+          $ref: "#/components/schemas/AdminUser"
+        credentials:
+          $ref: "#/components/schemas/OneTimeCredentials"
+    OneTimeCredentials:
+      type: object
+      required: [username_or_email, temporary_secret, expires_at]
+      properties:
+        username_or_email:
+          type: string
+        temporary_secret:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    AdminUserPatch:
+      type: object
+      properties:
+        role:
+          $ref: "#/components/schemas/AppRole"
+        status:
+          type: string
+          enum: [active, disabled]
+        display_name:
+          type: string
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        target:
+          type: string
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        description:
+          type: string
+        patch_scope:
+          type: string
+        task_type:
+          $ref: "#/components/schemas/TaskType"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        created_by:
+          type: string
+          format: uuid
+        assignee_id:
+          type: string
+          format: uuid
+          nullable: true
+        assigning_manager_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TaskCreate:
+      type: object
+      required: [target, description, patch_scope, task_type]
+      properties:
+        target:
+          type: string
+        asset_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        patch_scope:
+          type: string
+        task_type:
+          $ref: "#/components/schemas/TaskType"
+        assignee_id:
+          type: string
+          format: uuid
+          nullable: true
+    TaskPatch:
+      type: object
+      properties:
+        target:
+          type: string
+        description:
+          type: string
+        patch_scope:
+          type: string
+        task_type:
+          $ref: "#/components/schemas/TaskType"
+        assignee_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+    TaskNote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        author_id:
+          type: string
+          format: uuid
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    TaskLink:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [finding, scan]
+        ref_id:
+          type: string
+          format: uuid
+        author_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    TaskLinkCreate:
+      type: object
+      required: [kind, ref_id]
+      properties:
+        kind:
+          type: string
+          enum: [finding, scan]
+        ref_id:
+          type: string
+          format: uuid
+    TaskAuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+        message:
+          type: string
+        from_status:
+          type: string
+          nullable: true
+        to_status:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        task_id:
+          type: string
+          format: uuid
+          nullable: true
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time

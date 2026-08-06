@@ -1,0 +1,71 @@
+{
+  "version": "1.1.0",
+  "clarifications_session": "2026-08-04",
+  "roles": ["user", "security_analyst", "security_manager", "admin"],
+  "capabilities": {
+    "login": ["user", "security_analyst", "security_manager", "admin"],
+    "view_ops_dashboard": ["user", "security_analyst", "security_manager"],
+    "view_threat_detection": {
+      "user": "read_only_org",
+      "security_analyst": "assigned_scope",
+      "security_manager": "all",
+      "admin": "deny"
+    },
+    "view_scan_reports": {
+      "user": "read_only_org",
+      "security_analyst": "assigned_scope",
+      "security_manager": "all",
+      "admin": "deny"
+    },
+    "view_tasks": {
+      "user": "deny",
+      "security_analyst": "own_only",
+      "security_manager": "all",
+      "admin": "deny"
+    },
+    "create_task": ["security_manager"],
+    "edit_task_metadata": ["security_manager"],
+    "assign_task": ["security_manager"],
+    "start_task": {
+      "security_analyst": "if_assignee",
+      "security_manager": "any"
+    },
+    "complete_task": {
+      "security_analyst": "if_assignee",
+      "security_manager": "any"
+    },
+    "block_task": {
+      "security_analyst": "if_assignee",
+      "security_manager": "any"
+    },
+    "review_or_close_task": {
+      "security_analyst": "deny",
+      "security_manager": "any"
+    },
+    "task_notes_and_links": {
+      "security_analyst": "own_tasks",
+      "security_manager": "any_task"
+    },
+    "red_team_tools": {
+      "security_analyst": "if_any_in_progress_red",
+      "security_manager": "always",
+      "user": "deny",
+      "admin": "deny"
+    },
+    "blue_team_tools": {
+      "security_analyst": "if_any_in_progress_blue",
+      "security_manager": "always",
+      "user": "deny",
+      "admin": "deny"
+    },
+    "admin_panel": ["admin"],
+    "create_user_assign_role": ["admin"],
+    "assign_admin_role": ["admin"],
+    "demote_or_disable_admin": ["admin"],
+    "issue_one_time_credentials": ["admin"]
+  },
+  "bootstrap": {
+    "first_admin": "out_of_band_only",
+    "last_admin_protection": false
+  }
+}

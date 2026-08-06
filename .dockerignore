@@ -1,0 +1,20 @@
+# Docker build context ignores
+.git
+.specify
+specs
+**/node_modules
+**/__pycache__
+**/.venv
+**/venv
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pyc
+**/dist
+**/build
+**/.pytest_cache
+**/coverage
+**/.turbo
+secure_dash/node_modules
+*.md
+!README.md
