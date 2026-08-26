@@ -1,0 +1,10 @@
+﻿{
+    "execution_time":  1.3719110488891602,
+    "partial_results":  false,
+    "return_code":  0,
+    "stderr":  "",
+    "stdout":  "http://host.docker.internal:3000 [\u001b[32m200\u001b[0m] [\u001b[35m9903\u001b[0m] [\u001b[36mOWASP Juice Shop\u001b[0m] []\n",
+    "success":  true,
+    "timed_out":  false,
+    "timestamp":  "2026-08-13T10:22:55.083317"
+}

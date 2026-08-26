@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 
 from app.routers.jobs import router as jobs_router
-from app.routers.cai_chat import router as cai_chat_router
+# from app.routers.cai_chat import router as cai_chat_router  # CAI disabled
+from app.routers.hexstrike_test import router as hexstrike_test_router
 from app.settings import get_settings
 
 app = FastAPI(title="Red Team Backend", version="0.1.0")
 app.include_router(jobs_router)
-app.include_router(cai_chat_router)
+# app.include_router(cai_chat_router)  # CAI disabled
+app.include_router(hexstrike_test_router)
 
 
 @app.get("/health")

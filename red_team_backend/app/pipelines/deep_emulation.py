@@ -1,13 +1,16 @@
-"""Deep emulation — uses LLM stub/client + CAI plan."""
+"""Deep emulation — uses LLM stub/client (+ CAI plan disabled)."""
 from __future__ import annotations
 
 from typing import Any
 
-from app.adapters import cai_client, llm_client
+# from app.adapters import cai_client  # CAI disabled
+from app.adapters import llm_client
 from app.guardrails import demo_blocks_profile, in_allowlist
 from app.pipelines import surface_recon
 from app.reporters.api_reporter import ApiReporter
 from app.settings import WorkerSettings, get_settings
+
+_STAGES = ["recon", "initial_access", "execution", "persistence", "exfiltration"]
 
 
 async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> None:
@@ -28,7 +31,7 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
                 {
                     "technique": "blocked_by_guardrail",
                     "technique_name": "Deep emulation blocked",
-                    "description": "CAI deep-emulation blocked by demo safe mode or out-of-scope targets",
+                    "description": "Deep-emulation blocked by demo safe mode or out-of-scope targets",
                     "severity": "info",
                     "status": "blocked_by_guardrail",
                     "team": "red",
@@ -38,7 +41,8 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
             )
             return
 
-        plan = await cai_client.plan_chain(job, settings)
+        # plan = await cai_client.plan_chain(job, settings)  # CAI disabled
+        plan = {"stages": list(_STAGES), "source": "plan-stub"}
         reasoning = await llm_client.complete(f"Summarize red deep-emulation for job {job_id}", settings)
         chain = await reporter.post_attack_chain(
             {
@@ -54,7 +58,7 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
                     {
                         "stage": stage,
                         "sequence": i + 1,
-                        "title": f"{stage} ({plan.get('source', 'cai')})",
+                        "title": f"{stage} ({plan.get('source', 'plan-stub')})",
                         "severity": "medium",
                     },
                 )
@@ -65,7 +69,7 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
                 "description": reasoning[:500],
                 "severity": "high",
                 "team": "red",
-                "source_tag": plan.get("source", "cai"),
+                "source_tag": plan.get("source", "plan-stub"),
                 "source_ip": "0.0.0.0",
                 "raw_payload": {"plan": plan},
             }

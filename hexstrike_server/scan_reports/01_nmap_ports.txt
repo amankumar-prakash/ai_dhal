@@ -1,0 +1,80 @@
+﻿Starting Nmap 7.99 ( https://nmap.org ) at 2026-08-13 10:19 +0000
+Nmap scan report for host.docker.internal (192.168.65.254)
+Host is up (0.0043s latency).
+Other addresses for host.docker.internal (not scanned): fdc4:f303:9324::254
+
+PORT     STATE  SERVICE    VERSION
+80/tcp   open   http
+443/tcp  open   https?
+3000/tcp open   ppp?
+8000/tcp closed http-alt
+8080/tcp closed http-proxy
+8443/tcp closed https-alt
+2 services unrecognized despite returning data. If you know the service/version, please submit the following fingerprints at https://nmap.org/cgi-bin/submit.cgi?new-service :
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port80-TCP:V=7.99%I=7%D=8/13%Time=6A7D9A4E%P=x86_64-pc-linux-gnu%r(GetR
+SF:equest,138,"HTTP/1\.0\x20403\x20connecting\x20to\x20:80:\x20connecting\
+SF:x20to\x20:80:\x20dial\x20tcp\x20:80:\x20connectex:\x20No\x20connection\
+SF:x20could\x20be\x20made\x20because\x20the\x20target\x20machine\x20active
+SF:ly\x20refused\x20it\.\r\nConnection:\x20close\r\n\r\nconnecting\x20to\x
+SF:20:80:\x20connecting\x20to\x20:80:\x20dial\x20tcp\x20:80:\x20connectex:
+SF:\x20No\x20connection\x20could\x20be\x20made\x20because\x20the\x20target
+SF:\x20machine\x20actively\x20refused\x20it\.")%r(HTTPOptions,138,"HTTP/1\
+SF:.0\x20403\x20connecting\x20to\x20:80:\x20connecting\x20to\x20:80:\x20di
+SF:al\x20tcp\x20:80:\x20connectex:\x20No\x20connection\x20could\x20be\x20m
+SF:ade\x20because\x20the\x20target\x20machine\x20actively\x20refused\x20it
+SF:\.\r\nConnection:\x20close\r\n\r\nconnecting\x20to\x20:80:\x20connectin
+SF:g\x20to\x20:80:\x20dial\x20tcp\x20:80:\x20connectex:\x20No\x20connectio
+SF:n\x20could\x20be\x20made\x20because\x20the\x20target\x20machine\x20acti
+SF:vely\x20refused\x20it\.")%r(RTSPRequest,88,"HTTP/1\.0\x20400\x20reading
+SF:\x20request:\x20malformed\x20HTTP\x20version\x20\"RTSP/1\.0\"\r\nConnec
+SF:tion:\x20close\r\n\r\nreading\x20request:\x20malformed\x20HTTP\x20versi
+SF:on\x20\"RTSP/1\.0\"")%r(FourOhFourRequest,138,"HTTP/1\.0\x20403\x20conn
+SF:ecting\x20to\x20:80:\x20connecting\x20to\x20:80:\x20dial\x20tcp\x20:80:
+SF:\x20connectex:\x20No\x20connection\x20could\x20be\x20made\x20because\x2
+SF:0the\x20target\x20machine\x20actively\x20refused\x20it\.\r\nConnection:
+SF:\x20close\r\n\r\nconnecting\x20to\x20:80:\x20connecting\x20to\x20:80:\x
+SF:20dial\x20tcp\x20:80:\x20connectex:\x20No\x20connection\x20could\x20be\
+SF:x20made\x20because\x20the\x20target\x20machine\x20actively\x20refused\x
+SF:20it\.")%r(GenericLines,78,"HTTP/1\.0\x20400\x20reading\x20request:\x20
+SF:malformed\x20HTTP\x20request\x20\"\"\r\nConnection:\x20close\r\n\r\nrea
+SF:ding\x20request:\x20malformed\x20HTTP\x20request\x20\"\"")%r(Help,80,"H
+SF:TTP/1\.0\x20400\x20reading\x20request:\x20malformed\x20HTTP\x20request\
+SF:x20\"HELP\"\r\nConnection:\x20close\r\n\r\nreading\x20request:\x20malfo
+SF:rmed\x20HTTP\x20request\x20\"HELP\"");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port3000-TCP:V=7.99%I=7%D=8/13%Time=6A7D9A52%P=x86_64-pc-linux-gnu%r(Ge
+SF:tRequest,2866,"HTTP/1\.1\x20200\x20OK\r\nAccess-Control-Allow-Origin:\x
+SF:20\*\r\nX-Content-Type-Options:\x20nosniff\r\nX-Frame-Options:\x20SAMEO
+SF:RIGIN\r\nFeature-Policy:\x20payment\x20'self'\r\nX-Recruiting:\x20/#/jo
+SF:bs\r\nAccept-Ranges:\x20bytes\r\nCache-Control:\x20public,\x20max-age=0
+SF:\r\nLast-Modified:\x20Thu,\x2013\x20Aug\x202026\x2008:20:48\x20GMT\r\nE
+SF:Tag:\x20W/\"26af-19ffa35aa4f\"\r\nContent-Type:\x20text/html;\x20charse
+SF:t=UTF-8\r\nContent-Length:\x209903\r\nVary:\x20Accept-Encoding\r\nDate:
+SF:\x20Thu,\x2013\x20Aug\x202026\x2010:20:02\x20GMT\r\nConnection:\x20clos
+SF:e\r\n\r\n<!--\n\x20\x20~\x20Copyright\x20\(c\)\x202014-2026\x20Bjoern\x
+SF:20Kimminich\x20&\x20the\x20OWASP\x20Juice\x20Shop\x20contributors\.\n\x
+SF:20\x20~\x20SPDX-License-Identifier:\x20MIT\n\x20\x20-->\n\n<!doctype\x2
+SF:0html>\n<html\x20lang=\"en\"\x20data-beasties-container>\n<head>\n\x20\
+SF:x20<meta\x20charset=\"utf-8\">\n\x20\x20<title>OWASP\x20Juice\x20Shop</
+SF:title>\n\x20\x20<meta\x20name=\"description\"\x20content=\"Probably\x20
+SF:the\x20most\x20modern\x20and\x20sophisticated\x20insecure\x20web\x20app
+SF:lication\">\n\x20\x20<meta\x20name=\"viewport\"\x20content=\"width=devi
+SF:ce-width,\x20initial-scale=1\">\n\x20\x20<link\x20rel=\"preconnect\"\x2
+SF:0href=\"htt")%r(Help,2F,"HTTP/1\.1\x20400\x20Bad\x20Request\r\nConnecti
+SF:on:\x20close\r\n\r\n")%r(NCP,2F,"HTTP/1\.1\x20400\x20Bad\x20Request\r\n
+SF:Connection:\x20close\r\n\r\n")%r(HTTPOptions,EA,"HTTP/1\.1\x20204\x20No
+SF:\x20Content\r\nAccess-Control-Allow-Origin:\x20\*\r\nAccess-Control-All
+SF:ow-Methods:\x20GET,HEAD,PUT,PATCH,POST,DELETE\r\nVary:\x20Access-Contro
+SF:l-Request-Headers\r\nContent-Length:\x200\r\nDate:\x20Thu,\x2013\x20Aug
+SF:\x202026\x2010:20:02\x20GMT\r\nConnection:\x20close\r\n\r\n")%r(RTSPReq
+SF:uest,EA,"HTTP/1\.1\x20204\x20No\x20Content\r\nAccess-Control-Allow-Orig
+SF:in:\x20\*\r\nAccess-Control-Allow-Methods:\x20GET,HEAD,PUT,PATCH,POST,D
+SF:ELETE\r\nVary:\x20Access-Control-Request-Headers\r\nContent-Length:\x20
+SF:0\r\nDate:\x20Thu,\x2013\x20Aug\x202026\x2010:20:02\x20GMT\r\nConnectio
+SF:n:\x20close\r\n\r\n")%r(RPCCheck,2F,"HTTP/1\.1\x20400\x20Bad\x20Request
+SF:\r\nConnection:\x20close\r\n\r\n");
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 91.88 seconds
+

@@ -1,4 +1,7 @@
-"""Interactive CAI session manager — spawn uv run cai, stream lines, stdin follow-ups."""
+"""Interactive CAI session manager — spawn uv run cai, stream lines, stdin follow-ups.
+
+CAI DISABLED — not mounted; kept for reference only.
+"""
 from __future__ import annotations
 
 import asyncio

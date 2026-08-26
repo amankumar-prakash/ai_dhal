@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
+cai-framework
+langchain>=1.0
+langchain-openai>=1.0
+langchain-mcp-adapters>=0.1.0
+mcp
+requests
+pytest
+pytest-asyncio

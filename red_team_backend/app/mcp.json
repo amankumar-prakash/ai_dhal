@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "hexstrike-ai": {
+      "command": "python3",
+      "args": [
+        "/app/hexstrike/hexstrike_mcp.py",
+        "--server",
+        "http://localhost:8005"
+      ],
+      "transport": "stdio",
+      "description": "HexStrike AI v6.0 - Advanced Cybersecurity Automation Platform",
+      "timeout": 300,
+      "disabled": false
+    }
+  }
+}

@@ -1,5 +1,7 @@
 """CAI (Cybersecurity AI) client — stub plan or live one-shot CLI invocation.
 
+CAI DISABLED — not used by pipelines; kept for reference only.
+
 Live mode runs `uv run cai "<prompt>"` (falling back to a bare `cai` on `PATH`) inside
 `CAI_WORKDIR`, treating the CLI's stdout as the kill-chain plan text. It fails closed
 (raises `RuntimeError`) when the workdir is missing, no CAI executable is found, the

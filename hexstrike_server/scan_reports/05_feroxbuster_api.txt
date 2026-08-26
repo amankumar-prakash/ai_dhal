@@ -1,0 +1,69 @@
+﻿200      GET       33l      413w     9903c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+
+500      GET       49l      174w     2408c http://host.docker.internal:3000/api
+
+500      GET       49l      174w     2410c http://host.docker.internal:3000/apis
+
+301      GET       10l       15w      156c http://host.docker.internal:3000/assets => http://host.docker.internal:3000/assets/
+
+200      GET      358l      942w    11329c http://host.docker.internal:3000/ftp
+
+301      GET       10l       15w      155c http://host.docker.internal:3000/media => http://host.docker.internal:3000/media/
+
+500      GET       49l      117w     1043c http://host.docker.internal:3000/profile
+
+200      GET      124l      265w     3314c http://host.docker.internal:3000/vendor/material-icons/material-icons.css
+
+200      GET       68l      916w    49310c http://host.docker.internal:3000/assets/public/images/JuiceShop_Logo.png
+
+200      GET        4l        8w      180c http://host.docker.internal:3000/assets/public/css/roboto.css
+
+200      GET        1l      276w    11670c http://host.docker.internal:3000/vendor/beercss/beer.min.js
+
+200      GET        6l       34w    23662c http://host.docker.internal:3000/assets/public/favicon_js.ico
+
+500      GET       49l      183w     2531c http://host.docker.internal:3000/redirect
+
+403      GET       49l      161w     1934c http://host.docker.internal:3000/ftp/coupons_2013.md.bak
+
+403      GET       49l      161w     1934c http://host.docker.internal:3000/ftp/encrypt.pyc
+
+403      GET       49l      161w     1934c http://host.docker.internal:3000/ftp/suspicious_errors.yml
+
+403      GET       49l      161w     1934c http://host.docker.internal:3000/ftp/eastere.gg
+
+403      GET       49l      161w     1934c http://host.docker.internal:3000/ftp/package-lock.json.bak
+
+403      GET       49l      161w     1934c http://host.docker.internal:3000/ftp/package.json.bak
+
+200      GET        1l      740w    90191c http://host.docker.internal:3000/vendor/beercss/beer.min.css
+
+200      GET       19l      150w      909c http://host.docker.internal:3000/ftp/acquisitions.md
+
+200      GET       53l      497w     3047c http://host.docker.internal:3000/ftp/legal.md
+
+200      GET       15l       65w     5767c http://host.docker.internal:3000/ftp/incident-support.kdbx
+
+200      GET     1194l     1194w   369237c http://host.docker.internal:3000/ftp/announcement_encrypted.md
+
+500      GET       49l      174w     2410c http://host.docker.internal:3000/rest
+
+500      GET       49l      174w     2424c http://host.docker.internal:3000/restaurants
+
+500      GET       49l      174w     2416c http://host.docker.internal:3000/restore
+
+500      GET       49l      174w     2418c http://host.docker.internal:3000/restored
+
+500      GET       49l      174w     2422c http://host.docker.internal:3000/restricted
+
+200      GET        2l        4w       28c http://host.docker.internal:3000/robots.txt
+
+200      GET     8773l    50148w  3950087c http://host.docker.internal:3000/video
+
+200      GET      180l      672w     5863c http://host.docker.internal:3000/promotion
+
+200      GET      349l      864w     9620c http://host.docker.internal:3000/ftp/quarantine
+
+200      GET     8773l    50148w  3950087c http://host.docker.internal:3000/Video
+
+

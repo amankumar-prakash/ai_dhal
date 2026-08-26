@@ -1,0 +1,10 @@
+﻿{
+    "execution_time":  0.001634836196899414,
+    "partial_results":  false,
+    "return_code":  2,
+    "stderr":  "/tmp/probe_apis.sh: 2: set: Illegal option -\n",
+    "stdout":  "",
+    "success":  false,
+    "timed_out":  false,
+    "timestamp":  "2026-08-13T10:39:44.916004"
+}

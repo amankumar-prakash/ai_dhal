@@ -1,0 +1,14 @@
+﻿[[92mswagger-api[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000/api-docs/swagger.yaml [[93mpaths[0m=[93m"/api-docs/swagger.yaml"[0m]
+[[92mfingerprinthub-web-fingerprints[0m:[1;92mqm-system[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mtech-detect[0m:[1;92mgoogle-font-api[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mcross-origin-resource-policy[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mstrict-transport-security[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mcontent-security-policy[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mpermissions-policy[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mx-permitted-cross-domain-policies[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mreferrer-policy[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mcross-origin-embedder-policy[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mhttp-missing-security-headers[0m:[1;92mcross-origin-opener-policy[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+[[92mprometheus-metrics[0m] [[94mhttp[0m] [[33mmedium[0m] http://host.docker.internal:3000/metrics
+[[92mowasp-juice-shop-detect[0m] [[94mhttp[0m] [[34minfo[0m] http://host.docker.internal:3000
+

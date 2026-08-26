@@ -1,0 +1,17 @@
+﻿{
+    "execution_time":  18.138489484786987,
+    "partial_results":  false,
+    "recovery_info":  {
+                          "attempts_made":  1,
+                          "recovery_applied":  false,
+                          "recovery_history":  [
+
+                                               ]
+                      },
+    "return_code":  0,
+    "stderr":  "",
+    "stdout":  "api                  (Status: 500) [Size: 2408]\napis                 (Status: 500) [Size: 2410]\nassets               (Status: 301) [Size: 156] [--\u003e /assets/]\nftp                  (Status: 200) [Size: 11317]\nmedia                (Status: 301) [Size: 155] [--\u003e /media/]\nprofile              (Status: 500) [Size: 1043]\npromotion            (Status: 200) [Size: 5863]\nredirect             (Status: 500) [Size: 2531]\nrestaurants          (Status: 500) [Size: 2424]\nrestore              (Status: 500) [Size: 2416]\nrestored             (Status: 500) [Size: 2418]\nrest                 (Status: 500) [Size: 2410]\nrestricted           (Status: 500) [Size: 2422]\nrobots.txt           (Status: 200) [Size: 28]\nVideo                (Status: 200) [Size: 2232676]\nvideo                (Status: 200) [Size: 2232676]\n",
+    "success":  true,
+    "timed_out":  false,
+    "timestamp":  "2026-08-13T10:39:22.169310"
+}

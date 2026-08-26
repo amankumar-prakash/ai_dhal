@@ -1,0 +1,6 @@
+﻿error: the argument '--threads <THREADS>' cannot be used multiple times
+
+Usage: feroxbuster [OPTIONS]
+
+For more information, try '--help'.
+

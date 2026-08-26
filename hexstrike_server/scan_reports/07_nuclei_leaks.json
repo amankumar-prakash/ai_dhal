@@ -1,0 +1,17 @@
+﻿{
+    "execution_time":  160.01611495018005,
+    "partial_results":  false,
+    "recovery_info":  {
+                          "attempts_made":  1,
+                          "recovery_applied":  false,
+                          "recovery_history":  [
+
+                                               ]
+                      },
+    "return_code":  0,
+    "stderr":  "",
+    "stdout":  "[\u001b[92mswagger-api\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000/api-docs/swagger.yaml [\u001b[93mpaths\u001b[0m=\u001b[93m\"/api-docs/swagger.yaml\"\u001b[0m]\n[\u001b[92mfingerprinthub-web-fingerprints\u001b[0m:\u001b[1;92mqm-system\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mtech-detect\u001b[0m:\u001b[1;92mgoogle-font-api\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mcross-origin-resource-policy\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mstrict-transport-security\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mcontent-security-policy\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mpermissions-policy\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mx-permitted-cross-domain-policies\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mreferrer-policy\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mcross-origin-embedder-policy\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mhttp-missing-security-headers\u001b[0m:\u001b[1;92mcross-origin-opener-policy\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n[\u001b[92mprometheus-metrics\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[33mmedium\u001b[0m] http://host.docker.internal:3000/metrics\n[\u001b[92mowasp-juice-shop-detect\u001b[0m] [\u001b[94mhttp\u001b[0m] [\u001b[34minfo\u001b[0m] http://host.docker.internal:3000\n",
+    "success":  true,
+    "timed_out":  false,
+    "timestamp":  "2026-08-13T10:30:35.258187"
+}

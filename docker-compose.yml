@@ -22,7 +22,9 @@ services:
       - blue_team_backend
 
   red_team_backend:
-    build: ./red_team_backend
+    build:
+      context: .
+      dockerfile: red_team_backend/Dockerfile
     ports:
       - "8001:8001"
     env_file: .env
@@ -35,21 +37,27 @@ services:
       RED_SERVICE_TOKEN: ${RED_SERVICE_TOKEN:-change-me-red}
       DEMO_SAFE_MODE: ${DEMO_SAFE_MODE:-1}
       TARGET_ALLOWLIST: ${TARGET_ALLOWLIST:-}
-      HEXSTRIKE_BASE_URL: ${HEXSTRIKE_BASE_URL:-http://host.docker.internal:8888}
+      # Internal compose DNS — do not use host.docker.internal from root .env here
+      HEXSTRIKE_BASE_URL: http://hexstrike_server:8005
+      HEXSTRIKE_MCP_SCRIPT: /app/hexstrike/hexstrike_mcp.py
       HEXSTRIKE_STUB: ${HEXSTRIKE_STUB:-0}
-      CAI_WORKDIR: ${CAI_WORKDIR:-/cai}
-      CAI_STUB: ${CAI_STUB:-0}
-      CAI_CHAT_STUB: ${CAI_CHAT_STUB:-1}
-      CAI_AGENT_TYPE: ${CAI_AGENT_TYPE:-redteam_agent}
-      CAI_CONTAINER_VENV: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
-      UV_PROJECT_ENVIRONMENT: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
+      # CAI disabled
+      # CAI_WORKDIR: ${CAI_WORKDIR:-/cai}
+      # CAI_STUB: ${CAI_STUB:-0}
+      # CAI_CHAT_STUB: ${CAI_CHAT_STUB:-1}
+      # CAI_AGENT_TYPE: ${CAI_AGENT_TYPE:-redteam_agent}
+      # CAI_CONTAINER_VENV: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
+      # UV_PROJECT_ENVIRONMENT: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
       # No DATABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY
-    volumes:
-      - ${CAI_HOST_PATH:-../cai_pentesting}:/cai
+    # volumes:
+    #   - ${CAI_HOST_PATH:-../cai_pentesting}:/cai  # CAI disabled
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      hexstrike_server:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8001/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -68,7 +76,7 @@ services:
       BLUE_SERVICE_TOKEN: ${BLUE_SERVICE_TOKEN:-change-me-blue}
       DEMO_SAFE_MODE: ${DEMO_SAFE_MODE:-1}
       TARGET_ALLOWLIST: ${TARGET_ALLOWLIST:-}
-      HEXSTRIKE_BASE_URL: ${HEXSTRIKE_BASE_URL:-http://host.docker.internal:8888}
+      HEXSTRIKE_BASE_URL: ${HEXSTRIKE_BASE_URL:-http://hexstrike_server:8005}
       HEXSTRIKE_STUB: ${HEXSTRIKE_STUB:-0}
       CAI_WORKDIR: ${CAI_WORKDIR:-/cai}
       CAI_STUB: ${CAI_STUB:-0}
@@ -81,8 +89,25 @@ services:
       - ${CAI_HOST_PATH:-../cai_pentesting}:/cai
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      hexstrike_server:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  hexstrike_server:
+    build: ./hexstrike_server
+    ports:
+      - "8005:8005"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      HEXSTRIKE_PORT: "8005"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8005/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

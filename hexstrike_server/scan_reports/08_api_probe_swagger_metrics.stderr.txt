@@ -1,0 +1,2 @@
+﻿/tmp/probe_apis.sh: 2: set: Illegal option -
+

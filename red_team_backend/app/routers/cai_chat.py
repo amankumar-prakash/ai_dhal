@@ -1,4 +1,7 @@
-"""CAI chat worker routes — service token auth."""
+"""CAI chat worker routes — service token auth.
+
+CAI DISABLED — router is not mounted in app.main.
+"""
 from __future__ import annotations
 
 import json
