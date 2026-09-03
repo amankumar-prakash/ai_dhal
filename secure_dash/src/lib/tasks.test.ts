@@ -2,7 +2,7 @@
  * Tool-unlock predicates — all roles are unlocked. Run with:
  *   bun run src/lib/tasks.test.ts
  */
-import { canOpenBlueTools, canOpenRedTools, unlockForType } from "./tasks";
+import { canOpenBlueTools, canOpenRedTools, resultsUnlocked, unlockForType } from "./tasks";
 import type { Task } from "./rbac-types";
 
 let assertions = 0;
@@ -26,5 +26,8 @@ check("analyst can open blue tools with no tasks", canOpenBlueTools("security_an
 check("unlockForType('red') is true", unlockForType("user", noTasks, ANALYST, "red") === true);
 check("unlockForType('blue') is true", unlockForType("admin", noTasks, ANALYST, "blue") === true);
 check("unlockForType('both') is true", unlockForType("user", noTasks, ANALYST, "both") === true);
+check("assigned is locked", resultsUnlocked("assigned") === false);
+check("completed unlocks", resultsUnlocked("completed") === true);
+check("reviewed unlocks", resultsUnlocked("reviewed") === true);
 
 console.log(`tasks.test.ts: ${assertions} assertions passed`);

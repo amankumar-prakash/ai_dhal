@@ -1,4 +1,10 @@
-import type { AppRole, Task, TaskType } from "./rbac-types";
+import type { AppRole, Task, TaskStatus, TaskType } from "./rbac-types";
+
+const COMPLETED: TaskStatus[] = ["completed", "reviewed", "closed"];
+
+export function resultsUnlocked(status: TaskStatus): boolean {
+  return COMPLETED.includes(status);
+}
 
 /** Tools are open to every authenticated role. */
 export function canOpenRedTools(

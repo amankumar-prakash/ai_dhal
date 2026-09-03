@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ClipboardList, Play } from "lucide-react";
 import { useTaskRunner } from "@/hooks/use-task-runner";
-import { resultsUnlocked } from "@/lib/task-runner-dummy";
+import { resultsUnlocked } from "@/lib/tasks";
 import type { TaskStatus, TaskType } from "@/lib/rbac-types";
 import { EmptyState } from "@/components/sd/primitives";
 
@@ -151,8 +151,9 @@ export function TaskBoard() {
                   {canStart && (
                     <button
                       onClick={() => {
-                        start(t.id);
-                        navigate({ to: "/tasks/$taskId", params: { taskId: t.id } });
+                        void start(t.id).then(() => {
+                          navigate({ to: "/tasks/$taskId", params: { taskId: t.id } });
+                        });
                       }}
                       className="inline-flex items-center gap-1 rounded-sm px-2.5 py-1.5 text-sm"
                       style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}

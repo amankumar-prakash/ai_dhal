@@ -196,8 +196,15 @@ def patch_job(job_id: UUID, body: JobPatch) -> dict[str, Any]:
     job = get_job(job_id)
     if job["status"] in TERMINAL_JOB:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is terminal")
-    row = _store().update("jobs", job_id, body.model_dump(exclude_unset=True))
+    data = body.model_dump(exclude_unset=True)
+    if data.get("status") in {"completed", "failed", "cancelled"}:
+        data.setdefault("finished_at", datetime.now(timezone.utc))
+    row = _store().update("jobs", job_id, data)
     assert row
+    if data.get("status") == "completed":
+        from app.services.tasks import complete_linked_task_for_job
+
+        complete_linked_task_for_job(job_id)
     return row
 
 
@@ -258,6 +265,17 @@ def create_tool_run(body: ToolRunCreate) -> dict[str, Any]:
     return _store().create("tool_runs", {"id": uuid4(), **body.model_dump()})
 
 
+def list_tool_runs(job_id: UUID | None = None) -> list[dict[str, Any]]:
+    rows = _store().list_all("tool_runs")
+    if job_id is None:
+        return rows
+    return [r for r in rows if str(r.get("job_id")) == str(job_id)]
+
+
+def scans_for_job(job_id: UUID) -> list[dict[str, Any]]:
+    return [r for r in _store().list_all("scans") if str(r.get("job_id")) == str(job_id)]
+
+
 def create_chain(name: str, scan_id: UUID | None, team: str) -> dict[str, Any]:
     return _store().create(
         "attack_chains",
@@ -276,7 +294,7 @@ def list_chains() -> list[dict[str, Any]]:
 
 
 def list_chain_steps(chain_id: UUID) -> list[dict[str, Any]]:
-    return [r for r in _store().list_all("attack_chain_steps") if r.get("chain_id") == chain_id]
+    return [r for r in _store().list_all("attack_chain_steps") if str(r.get("chain_id")) == str(chain_id)]
 
 
 def list_roles() -> list[dict[str, Any]]:

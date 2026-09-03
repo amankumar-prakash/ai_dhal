@@ -1,12 +1,19 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
+from app.config import get_settings
 from app.deps import Principal, require_ops_reader
 from app.schemas.models import TaskCreate, TaskLinkCreate, TaskNoteCreate, TaskPatch
 from app.services import tasks as task_svc
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+async def _dispatch_started(job: dict, task: dict) -> None:
+    from app.services.dispatch import dispatch_job
+
+    await dispatch_job(job, get_settings(), task=task)
 
 
 @router.get("")
@@ -24,14 +31,29 @@ def create_task(body: TaskCreate, principal: Principal = Depends(require_ops_rea
     return task_svc.create_task(body, principal)
 
 
+@router.get("/{task_id}/results")
+def get_task_results(task_id: UUID, _: Principal = Depends(require_ops_reader)):
+    return task_svc.get_task_results(task_id)
+
+
 @router.get("/{task_id}")
 def get_task(task_id: UUID, _: Principal = Depends(require_ops_reader)):
     return task_svc.get_task(task_id)
 
 
 @router.patch("/{task_id}")
-def patch_task(task_id: UUID, body: TaskPatch, principal: Principal = Depends(require_ops_reader)):
-    return task_svc.apply_patch(task_id, body, principal)
+async def patch_task(
+    task_id: UUID,
+    body: TaskPatch,
+    background: BackgroundTasks,
+    principal: Principal = Depends(require_ops_reader),
+):
+    updated = task_svc.apply_patch(task_id, body, principal)
+    if body.action == "start":
+        updated, job = await task_svc.start_discovery_run(updated, principal)
+        if job:
+            background.add_task(_dispatch_started, job, updated)
+    return updated
 
 
 @router.get("/{task_id}/notes")

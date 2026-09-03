@@ -10,6 +10,7 @@ from langchain_mcp_adapters.tools import load_mcp_tools
 from pydantic import BaseModel, Field
 
 from app.adapters.mcp_client import create_mcp_client
+from app.pipelines.task_discovery import select_recon_tools
 from app.settings import get_settings
 
 router = APIRouter(tags=["hexstrike-test"])
@@ -67,7 +68,7 @@ async def test_hexstrike(body: TestHexstrikeBody) -> dict[str, Any]:
 
     try:
         async with client.session(body.server) as session:
-            tools = await load_mcp_tools(session)
+            tools = select_recon_tools(await load_mcp_tools(session))
             agent = create_agent(model, tools)
             result = await agent.ainvoke(
                 {"messages": [{"role": "user", "content": body.message}]}

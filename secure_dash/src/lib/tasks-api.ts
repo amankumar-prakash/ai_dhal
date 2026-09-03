@@ -86,6 +86,59 @@ export function linkJobToTask(id: string, linked_job_id: string): Promise<Task> 
   });
 }
 
+export type TaskToolRun = {
+  id: string;
+  job_id: string;
+  team: string;
+  tool_name: string;
+  command_summary: string | null;
+  exit_code: number | null;
+  raw_output: Record<string, unknown>;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type TaskChainStep = {
+  id: string;
+  chain_id?: string;
+  stage: string;
+  sequence: number;
+  title: string;
+  severity: string;
+  category?: string | null;
+  source_tool?: string | null;
+  evidence?: string | null;
+  finding_id?: string | null;
+  threat_event_id?: string | null;
+};
+
+export type TaskResults = {
+  task: Task;
+  job: { id: string; status: string; error?: string | null } | null;
+  tools: TaskToolRun[];
+  findings: Array<{
+    id: string;
+    title: string;
+    severity: string;
+    source_tool?: string | null;
+    evidence?: unknown;
+    remediation?: string | null;
+  }>;
+  chain: { id: string; name?: string; steps: TaskChainStep[] } | null;
+  patches: import("@/lib/security").Patch[];
+};
+
+export function getTaskResults(id: string): Promise<TaskResults> {
+  return apiFetch<TaskResults>(`/tasks/${id}/results`);
+}
+
+export function applyTaskPatch(patchId: string) {
+  return apiFetch(`/patches/${patchId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "applied" }),
+  });
+}
+
 export function listTaskNotes(id: string): Promise<TaskNote[]> {
   return apiFetch<TaskNote[]>(`/tasks/${id}/notes`);
 }
@@ -127,6 +180,13 @@ export function taskQuery(id: string) {
   return queryOptions({
     queryKey: ["tasks", "detail", id],
     queryFn: () => getTask(id),
+  });
+}
+
+export function taskResultsQuery(id: string) {
+  return queryOptions({
+    queryKey: ["tasks", "results", id],
+    queryFn: () => getTaskResults(id),
   });
 }
 

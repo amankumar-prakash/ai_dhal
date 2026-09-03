@@ -28,7 +28,7 @@ def list_steps(chain_id: UUID, _: Principal = Depends(require_jwt)):
 
 @router_chains.post("/{chain_id}/steps", status_code=201)
 def add_step(chain_id: UUID, body: AttackChainStepCreate, _: Principal = Depends(require_jwt_or_service)):
-    return crud.add_chain_step(chain_id, body.model_dump())
+    return crud.add_chain_step(chain_id, body.model_dump(exclude_none=True))
 
 
 @router_roles.get("")

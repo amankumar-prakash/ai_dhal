@@ -9,7 +9,7 @@
       ],
       "transport": "stdio",
       "description": "HexStrike AI v6.0 - Advanced Cybersecurity Automation Platform",
-      "timeout": 300,
+      "timeout": 900,
       "disabled": false
     }
   }

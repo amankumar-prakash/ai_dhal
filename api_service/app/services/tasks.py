@@ -177,7 +177,21 @@ def _transition(
     to_status = cur
 
     if action == "start":
-        if cur not in {"assigned", "blocked"}:
+        if cur == "in_progress":
+            from app.services import crud
+
+            linked = task.get("linked_job_id")
+            existing = None
+            if linked:
+                try:
+                    existing = crud.get_job(
+                        linked if isinstance(linked, UUID) else UUID(str(linked))
+                    )
+                except HTTPException:
+                    existing = None
+            if existing and str(existing.get("status")) not in {"failed", "cancelled"}:
+                raise HTTPException(status_code=400, detail="Task already started")
+        elif cur not in {"assigned", "blocked", "draft"}:
             raise HTTPException(status_code=400, detail=f"Cannot start from {cur}")
         to_status = "in_progress"
         patch["status"] = to_status
@@ -340,3 +354,152 @@ def list_links(task_id: UUID) -> list[dict[str, Any]]:
 def list_audit(task_id: UUID) -> list[dict[str, Any]]:
     get_task(task_id)
     return [r for r in _store().list_all("task_audit_events") if str(r.get("task_id")) == str(task_id)]
+
+
+def complete_linked_task_for_job(job_id: UUID) -> None:
+    """Mark the task that owns this job as completed so Attack Chain / Patches unlock."""
+    now = _now()
+    for task in _store().list_all("tasks"):
+        if str(task.get("linked_job_id")) != str(job_id):
+            continue
+        if str(task.get("status")) in {"completed", "reviewed", "closed"}:
+            continue
+        tid = task["id"] if isinstance(task["id"], UUID) else UUID(str(task["id"]))
+        _store().update(
+            "tasks",
+            tid,
+            {"status": "completed", "completed_at": now, "updated_at": now},
+        )
+        mgr = task.get("assigning_manager_id")
+        if mgr:
+            mid = mgr if isinstance(mgr, UUID) else UUID(str(mgr))
+            notif_svc.notify(
+                mid,
+                "task_completed_for_review",
+                "Task ready for review",
+                f"Completed: {task.get('target')}",
+                tid,
+            )
+
+
+def _task_uuid(task: dict[str, Any]) -> UUID:
+    return task["id"] if isinstance(task["id"], UUID) else UUID(str(task["id"]))
+
+
+def ensure_task_asset(task: dict[str, Any]) -> UUID:
+    from app.schemas.models import AssetCreate
+    from app.services import crud
+
+    if task.get("asset_id"):
+        return task["asset_id"] if isinstance(task["asset_id"], UUID) else UUID(str(task["asset_id"]))
+
+    from app.services.targets import parse_target
+
+    parsed = parse_target(str(task.get("target") or ""))
+    hostname = str(parsed["hostname"] or task.get("target") or "unknown")
+    ip = hostname if hostname.replace(".", "").isdigit() or ":" in hostname else "0.0.0.0"
+    asset = crud.create_asset(
+        AssetCreate(name=str(task.get("target") or hostname), hostname=hostname, ip_address=ip)
+    )
+    aid = asset["id"] if isinstance(asset["id"], UUID) else UUID(str(asset["id"]))
+    tid = _task_uuid(task)
+    _store().update("tasks", tid, {"asset_id": aid, "updated_at": _now()})
+    task["asset_id"] = aid
+    return aid
+
+
+async def start_discovery_run(task: dict[str, Any], principal: Principal) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Create a red task-discovery job. Returns (task, job_to_dispatch_or_None)."""
+    if str(task.get("task_type") or "red") == "blue":
+        return task, None
+    linked = task.get("linked_job_id")
+    if linked:
+        from app.services import crud
+
+        try:
+            existing = crud.get_job(linked if isinstance(linked, UUID) else UUID(str(linked)))
+        except HTTPException:
+            existing = None
+        if existing and str(existing.get("status")) not in {"failed", "cancelled"}:
+            return task, None
+
+    from app.schemas.models import JobCreate
+    from app.services import crud
+
+    asset_id = ensure_task_asset(task)
+    uid = UUID(principal.user_id) if principal.user_id else None
+    job = crud.create_job(
+        JobCreate(team="red", profile="task-discovery", asset_ids=[asset_id]),
+        requested_by=uid,
+    )
+    tid = _task_uuid(task)
+    jid = job["id"] if isinstance(job["id"], UUID) else UUID(str(job["id"]))
+    updated = _store().update("tasks", tid, {"linked_job_id": jid, "updated_at": _now()})
+    assert updated
+    return get_task(tid), job
+
+
+def get_task_results(task_id: UUID) -> dict[str, Any]:
+    """Assemble job, tool runs, findings, chain, and patches for a task."""
+    from app.services import crud
+
+    task = get_task(task_id)
+    job = None
+    tools: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    patches: list[dict[str, Any]] = []
+    chain: dict[str, Any] | None = None
+
+    linked = task.get("linked_job_id")
+    if not linked:
+        return {"task": task, "job": None, "tools": [], "findings": [], "chain": None, "patches": []}
+
+    job_id = linked if isinstance(linked, UUID) else UUID(str(linked))
+    try:
+        job = crud.get_job(job_id)
+    except HTTPException:
+        job = None
+
+    tools = crud.list_tool_runs(job_id)
+    scans = crud.scans_for_job(job_id)
+    scan_ids = {str(s["id"]) for s in scans}
+    asset_ids = {str(s.get("asset_id")) for s in scans if s.get("asset_id")}
+    if task.get("asset_id"):
+        asset_ids.add(str(task["asset_id"]))
+
+    for finding in crud.list_findings():
+        if str(finding.get("scan_id") or "") in scan_ids or str(finding.get("asset_id") or "") in asset_ids:
+            findings.append(finding)
+
+    finding_ids = {str(f["id"]) for f in findings}
+    patches = [
+        p for p in crud.list_patches() if str(p.get("finding_id") or "") in finding_ids
+    ]
+
+    chosen = None
+    for c in crud.list_chains():
+        if str(c.get("scan_id") or "") in scan_ids:
+            chosen = c
+            break
+    if chosen is None and scan_ids:
+        # Chains created without scan_id still belong to this run if named with the job.
+        job_short = str(job_id)[:8]
+        for c in crud.list_chains():
+            if job_short in str(c.get("name") or ""):
+                chosen = c
+                break
+    if chosen is not None:
+        cid = chosen["id"] if isinstance(chosen["id"], UUID) else UUID(str(chosen["id"]))
+        steps = crud.list_chain_steps(cid)
+        steps = sorted(steps, key=lambda s: int(s.get("sequence") or 0))
+        chain = {**chosen, "steps": steps}
+
+    return {
+        "task": task,
+        "job": job,
+        "tools": tools,
+        "findings": findings,
+        "chain": chain,
+        "patches": patches,
+    }
+

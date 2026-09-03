@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { ListPlus } from "lucide-react";
-import { DUMMY_ASSETS, DUMMY_ASSIGNEES } from "@/lib/task-runner-dummy";
+import { useQuery } from "@tanstack/react-query";
 import { useTaskRunner } from "@/hooks/use-task-runner";
+import { assigneeRolesQuery } from "@/lib/tasks-api";
+import { assetsQuery } from "@/lib/security";
 import type { TaskType } from "@/lib/rbac-types";
 import { ErrorBanner, Eyebrow, Panel } from "@/components/sd/primitives";
 
@@ -13,6 +15,8 @@ const inputStyle = {
 
 export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
   const { create } = useTaskRunner();
+  const assets = useQuery(assetsQuery);
+  const roles = useQuery(assigneeRolesQuery);
   const [target, setTarget] = useState("");
   const [description, setDescription] = useState("");
   const [patchScope, setPatchScope] = useState("");
@@ -22,7 +26,7 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!target.trim()) {
@@ -31,11 +35,11 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
     }
     setPending(true);
     try {
-      create({
+      await create({
         target,
         description,
         patch_scope: patchScope,
-        task_type: taskType,
+        task_type: taskType === "both" ? "red" : taskType,
         asset_id: assetId || null,
         assignee_id: assigneeId || null,
       });
@@ -67,7 +71,7 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             required
             value={target}
             onChange={(e) => setTarget(e.target.value)}
-            placeholder="shop.internal.lab"
+            placeholder="http://shop.internal.lab:3000"
             className="mono rounded-sm px-3 py-2 text-sm"
             style={inputStyle}
           />
@@ -78,7 +82,7 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            placeholder="What should this run cover?"
+            placeholder="Phases: nmap, httpx-toolkit, gobuster, katana, nuclei"
             className="rounded-sm px-3 py-2 text-sm"
             style={inputStyle}
           />
@@ -104,7 +108,6 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             >
               <option value="red">Red</option>
               <option value="blue">Blue</option>
-              <option value="both">Both</option>
             </select>
           </label>
           <label className="flex flex-col gap-1">
@@ -115,8 +118,8 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
               className="rounded-sm px-3 py-2 text-sm"
               style={inputStyle}
             >
-              <option value="">Unassigned</option>
-              {DUMMY_ASSETS.map((a) => (
+              <option value="">Create from target</option>
+              {(assets.data ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
                 </option>
@@ -132,10 +135,10 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             className="rounded-sm px-3 py-2 text-sm"
             style={inputStyle}
           >
-            <option value="">Alex Chen (default)</option>
-            {DUMMY_ASSIGNEES.map((r) => (
+            <option value="">Unassigned</option>
+            {(roles.data ?? []).map((r) => (
               <option key={r.user_id} value={r.user_id}>
-                {r.label}
+                {r.role} · {r.user_id.slice(0, 8)}
               </option>
             ))}
           </select>

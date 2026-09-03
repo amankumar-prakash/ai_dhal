@@ -1,59 +1,72 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  applyDummyPatch,
-  completeDummyTask,
-  createDummyTask,
-  getDummyResults,
-  getDummyTask,
-  listDummyTasks,
-  startDummyTask,
-  TASK_RUNNER_EVENT,
-  type DummyCreateInput,
-  type TaskResults,
-} from "@/lib/task-runner-dummy";
+  applyTaskPatch,
+  createTask,
+  tasksQuery,
+  transitionTask,
+  type TaskCreateBody,
+} from "@/lib/tasks-api";
 import type { Task } from "@/lib/rbac-types";
 
-function snapshot() {
-  return {
-    tasks: listDummyTasks(),
-    version: Date.now(),
-  };
-}
+export type { TaskCreateBody as DummyCreateInput } from "@/lib/tasks-api";
 
-/** Subscribes to the local Task Runner store (dummy data). */
+/** Live Task Runner — `/tasks` API + start dispatch. */
 export function useTaskRunner() {
-  const [state, setState] = useState(snapshot);
+  const qc = useQueryClient();
+  const list = useQuery(tasksQuery());
 
-  useEffect(() => {
-    const refresh = () => setState(snapshot());
-    window.addEventListener(TASK_RUNNER_EVENT, refresh);
-    window.addEventListener("storage", refresh);
-    return () => {
-      window.removeEventListener(TASK_RUNNER_EVENT, refresh);
-      window.removeEventListener("storage", refresh);
-    };
-  }, []);
+  const createMut = useMutation({
+    mutationFn: (input: TaskCreateBody) =>
+      createTask({
+        ...input,
+        task_type: input.task_type === "both" ? "red" : input.task_type,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
 
-  const create = useCallback((input: DummyCreateInput) => createDummyTask(input), []);
-  const start = useCallback((id: string) => startDummyTask(id), []);
-  const complete = useCallback((id: string) => completeDummyTask(id), []);
-  const applyPatch = useCallback(
-    (taskId: string, patchId: string) => applyDummyPatch(taskId, patchId),
-    [],
+  const startMut = useMutation({
+    mutationFn: (id: string) => transitionTask(id, "start"),
+    onSuccess: (task) => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "detail", task.id] });
+      qc.invalidateQueries({ queryKey: ["tasks", "results", task.id] });
+    },
+  });
+
+  const applyPatchMut = useMutation({
+    mutationFn: ({ taskId, patchId }: { taskId: string; patchId: string }) =>
+      applyTaskPatch(patchId).then(() => taskId),
+    onSuccess: (taskId) => {
+      qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
+      qc.invalidateQueries({ queryKey: ["patches"] });
+    },
+  });
+
+  const create = useCallback(
+    (input: TaskCreateBody) => createMut.mutateAsync(input),
+    [createMut],
   );
-  const getTask = useCallback((id: string): Task | undefined => getDummyTask(id), [state.version]);
-  const getResults = useCallback(
-    (id: string): TaskResults | undefined => getDummyResults(id),
-    [state.version],
+  const start = useCallback((id: string) => startMut.mutateAsync(id), [startMut]);
+  const applyPatch = useCallback(
+    (taskId: string, patchId: string) => applyPatchMut.mutateAsync({ taskId, patchId }),
+    [applyPatchMut],
+  );
+  const getTask = useCallback(
+    (id: string): Task | undefined => (list.data ?? []).find((t) => t.id === id),
+    [list.data],
   );
 
   return {
-    tasks: state.tasks,
+    tasks: list.data ?? [],
+    isLoading: list.isLoading,
+    error: list.error,
     getTask,
-    getResults,
     create,
     start,
-    complete,
     applyPatch,
+    starting: startMut.isPending,
   };
 }

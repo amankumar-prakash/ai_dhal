@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Crosshair, Download, KeyRound, LogIn, Terminal } from "lucide-react";
+import { Crosshair, Download, KeyRound, LogIn, Search, Terminal, Wrench } from "lucide-react";
 import {
   relTime,
   severityColor,
@@ -10,8 +10,15 @@ import {
   type Severity,
   type Stage,
 } from "@/lib/security";
-import type { DummyChainRecord } from "@/lib/task-runner-dummy";
+import type { TaskChainStep, TaskResults } from "@/lib/tasks-api";
 import { EmptyState, Eyebrow, Panel, SeverityChip } from "@/components/sd/primitives";
+
+export type ChainCategory = "tools" | "findings" | Stage;
+
+const EXTRA: { id: ChainCategory; label: string; icon: typeof Wrench }[] = [
+  { id: "tools", label: "Tools", icon: Wrench },
+  { id: "findings", label: "Findings", icon: Search },
+];
 
 const STAGE_ICON: Record<Stage, typeof Crosshair> = {
   recon: Crosshair,
@@ -21,27 +28,83 @@ const STAGE_ICON: Record<Stage, typeof Crosshair> = {
   exfiltration: Download,
 };
 
-export function TaskAttackChain({ steps }: { steps: DummyChainRecord[] }) {
-  const [selected, setSelected] = useState<Stage | null>(STAGES[0]);
+function asSeverity(value: string | undefined): Severity {
+  if (value === "critical" || value === "high" || value === "medium" || value === "low" || value === "info") {
+    return value;
+  }
+  return "info";
+}
 
-  const byStage = new Map<Stage, DummyChainRecord[]>();
-  for (const stage of STAGES) {
-    byStage.set(
-      stage,
-      steps.filter((s) => s.stage === stage).sort((a, b) => a.sequence - b.sequence),
-    );
+function categoryOf(step: TaskChainStep): ChainCategory {
+  const cat = (step.category || "").toLowerCase();
+  if (cat === "tools" || cat === "findings") return cat;
+  if (STAGES.includes(step.stage as Stage)) return step.stage as Stage;
+  return "recon";
+}
+
+function stepsFromResults(results: TaskResults): TaskChainStep[] {
+  if (results.chain?.steps?.length) return results.chain.steps;
+  const fromTools: TaskChainStep[] = (results.tools ?? []).map((t, i) => ({
+    id: t.id,
+    stage: "recon",
+    sequence: i + 1,
+    title: t.tool_name,
+    severity: "info",
+    category: "tools",
+    source_tool: t.tool_name,
+    evidence: t.command_summary,
+  }));
+  const fromFindings: TaskChainStep[] = (results.findings ?? []).map((f, i) => ({
+    id: f.id,
+    stage: "recon",
+    sequence: fromTools.length + i + 1,
+    title: f.title,
+    severity: f.severity,
+    category: "findings",
+    source_tool: f.source_tool,
+    finding_id: f.id,
+    evidence: typeof f.evidence === "string" ? f.evidence : undefined,
+  }));
+  return [...fromTools, ...fromFindings];
+}
+
+export function TaskAttackChain({
+  results,
+  steps: stepsProp,
+}: {
+  results?: TaskResults;
+  steps?: TaskChainStep[];
+}) {
+  const steps = stepsProp ?? (results ? stepsFromResults(results) : []);
+  const [selected, setSelected] = useState<ChainCategory | null>("tools");
+
+  const categories: { id: ChainCategory; label: string; icon: typeof Wrench }[] = [
+    ...EXTRA,
+    ...STAGES.map((s) => ({ id: s as ChainCategory, label: stageLabel[s], icon: STAGE_ICON[s] })),
+  ];
+
+  const byCat = new Map<ChainCategory, TaskChainStep[]>();
+  for (const c of categories) byCat.set(c.id, []);
+  for (const step of steps) {
+    const cat = categoryOf(step);
+    const list = byCat.get(cat) ?? [];
+    list.push(step);
+    byCat.set(cat, list);
+  }
+  for (const list of byCat.values()) {
+    list.sort((a, b) => a.sequence - b.sequence);
   }
 
-  const topSeverity = (stage: Stage): Severity | null => {
-    const list = byStage.get(stage) ?? [];
+  const topSeverity = (cat: ChainCategory): Severity | null => {
+    const list = byCat.get(cat) ?? [];
     if (!list.length) return null;
     return list.reduce<Severity>(
-      (acc, s) => (severityRank(s.severity) < severityRank(acc) ? s.severity : acc),
+      (acc, s) => (severityRank(asSeverity(s.severity)) < severityRank(acc) ? asSeverity(s.severity) : acc),
       "info",
     );
   };
 
-  const panelSteps = selected ? (byStage.get(selected) ?? []) : [];
+  const panelSteps = selected ? (byCat.get(selected) ?? []) : [];
 
   if (!steps.length) {
     return (
@@ -55,17 +118,17 @@ export function TaskAttackChain({ steps }: { steps: DummyChainRecord[] }) {
   return (
     <div>
       <div className="flex flex-col items-stretch gap-3 xl:flex-row xl:items-center">
-        {STAGES.map((stage, i) => {
-          const list = byStage.get(stage) ?? [];
-          const sev = topSeverity(stage);
+        {categories.map((cat, i) => {
+          const list = byCat.get(cat.id) ?? [];
+          const sev = topSeverity(cat.id);
           const critical = sev === "critical";
-          const isSelected = selected === stage;
-          const Icon = STAGE_ICON[stage];
+          const isSelected = selected === cat.id;
+          const Icon = cat.icon;
           const weight = Math.min(4, 1 + Math.floor(list.length / 2));
           return (
-            <div key={stage} className="flex flex-1 flex-col items-stretch xl:flex-row xl:items-center">
+            <div key={cat.id} className="flex flex-1 flex-col items-stretch xl:flex-row xl:items-center">
               <button
-                onClick={() => setSelected(isSelected ? null : stage)}
+                onClick={() => setSelected(isSelected ? null : cat.id)}
                 className="w-full rounded-md p-4 text-left transition-colors duration-150 ease-out"
                 style={{
                   background: isSelected ? "var(--surface-raised)" : "var(--surface)",
@@ -76,7 +139,7 @@ export function TaskAttackChain({ steps }: { steps: DummyChainRecord[] }) {
               >
                 <div className="flex items-center gap-2">
                   <Icon size={20} strokeWidth={1.5} style={{ color: "var(--text-secondary)" }} />
-                  <span className="flex-1 text-sm font-medium">{stageLabel[stage]}</span>
+                  <span className="flex-1 text-sm font-medium">{cat.label}</span>
                   <span
                     className="mono micro rounded-sm px-1.5 py-0.5"
                     style={{
@@ -97,7 +160,7 @@ export function TaskAttackChain({ steps }: { steps: DummyChainRecord[] }) {
                   )}
                 </div>
               </button>
-              {i < STAGES.length - 1 && (
+              {i < categories.length - 1 && (
                 <div className="flex shrink-0 items-center justify-center py-1 xl:px-1 xl:py-0" aria-hidden>
                   <svg width="28" height="28" viewBox="0 0 28 28" className="hidden xl:block">
                     <line x1="2" y1="14" x2="20" y2="14" stroke="var(--border-hairline)" strokeWidth={weight} />
@@ -120,7 +183,9 @@ export function TaskAttackChain({ steps }: { steps: DummyChainRecord[] }) {
             className="flex items-center justify-between border-b p-4"
             style={{ borderColor: "var(--border-hairline)" }}
           >
-            <Eyebrow>{stageLabel[selected]} — linked records</Eyebrow>
+            <Eyebrow>
+              {categories.find((c) => c.id === selected)?.label} — linked records
+            </Eyebrow>
             <button className="micro" style={{ color: "var(--text-muted)" }} onClick={() => setSelected(null)}>
               Close
             </button>
@@ -141,16 +206,16 @@ export function TaskAttackChain({ steps }: { steps: DummyChainRecord[] }) {
                   <span className="mono micro" style={{ color: "var(--text-muted)" }}>
                     #{step.sequence}
                   </span>
-                  <SeverityChip severity={step.severity} />
+                  <SeverityChip severity={asSeverity(step.severity)} />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm">{step.title}</div>
                     <div className="mono micro mt-1" style={{ color: "var(--text-muted)" }}>
-                      {step.technique} · {step.source_ip} · {relTime(step.occurred_at)}
-                      {step.cve ? ` · ${step.cve} (CVSS ${step.cvss?.toFixed(1)})` : ""}
+                      {step.source_tool ? `${step.source_tool} · ` : ""}
+                      {step.evidence ? String(step.evidence).slice(0, 160) : relTime(undefined)}
                     </div>
                   </div>
-                  <span className="micro" style={{ color: severityColor(step.severity) }}>
-                    {severityLabel[step.severity]}
+                  <span className="micro" style={{ color: severityColor(asSeverity(step.severity)) }}>
+                    {severityLabel[asSeverity(step.severity)]}
                   </span>
                 </li>
               ))}

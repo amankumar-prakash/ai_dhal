@@ -127,12 +127,55 @@ def _seed_lab_assets() -> None:
         )
 
 
+def _seed_juice_shop_task() -> None:
+    """Restore the lab Juice Shop recon draft after an in-memory API restart."""
+    settings = get_settings()
+    if (settings.api_store or "").lower() != "memory":
+        return
+    from datetime import datetime, timezone
+    from uuid import UUID
+
+    from app.lab_users import lab_accounts, user_id_for_email
+
+    store = get_store()
+    task_id = UUID("7d15e2c7-8ed3-425c-955c-732f66b6c56f")
+    if store.get("tasks", task_id):
+        return
+    mgr = next((a for a in lab_accounts(settings) if a["role"] == "security_manager"), None)
+    manager_id = user_id_for_email(mgr["email"]) if mgr else None
+    now = datetime.now(timezone.utc)
+    store.create(
+        "tasks",
+        {
+            "id": task_id,
+            "target": "http://81.183.231.113:25429",
+            "description": (
+                "Authorized HexStrike recon of OWASP Juice Shop "
+                "(from source on :10200 / public :25429). "
+                "Phases: nmap, httpx-toolkit, gobuster/feroxbuster, katana, "
+                "/rest+/api probe, nuclei exposure tags."
+            ),
+            "patch_scope": "none — lab Juice Shop, no WAF, no edge hardening",
+            "asset_id": None,
+            "task_type": "red",
+            "status": "draft",
+            "created_by": manager_id,
+            "assignee_id": None,
+            "assigning_manager_id": manager_id,
+            "linked_job_id": None,
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+
+
 @app.on_event("startup")
 def on_startup():
     _seed_lab_assets()
     from app.lab_users import seed_lab_identities
 
     seed_lab_identities()
+    _seed_juice_shop_task()
 
 
 @app.get(f"{API}/health")

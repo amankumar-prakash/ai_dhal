@@ -169,6 +169,9 @@ class AttackChainStepCreate(BaseModel):
     severity: str | None = "medium"
     threat_event_id: UUID | None = None
     finding_id: UUID | None = None
+    category: str | None = None
+    source_tool: str | None = None
+    evidence: str | None = None
 
 
 class ToolRunCreate(BaseModel):

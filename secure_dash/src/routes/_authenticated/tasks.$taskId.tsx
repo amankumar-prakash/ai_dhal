@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, GitBranch, Play, ShieldAlert, ShieldCheck, Swords } from "lucide-react";
 import { relTime } from "@/lib/security";
-import { DUMMY_ASSIGNEES, resultsUnlocked } from "@/lib/task-runner-dummy";
-import { useTaskRunner } from "@/hooks/use-task-runner";
+import { resultsUnlocked } from "@/lib/tasks";
+import { applyTaskPatch, taskQuery, taskResultsQuery, transitionTask } from "@/lib/tasks-api";
 import { StatusPill } from "@/components/tasks/TaskBoard";
 import { TaskAttackChain } from "@/components/tasks/TaskAttackChain";
 import { TaskPatches } from "@/components/tasks/TaskPatches";
@@ -16,19 +17,61 @@ export const Route = createFileRoute("/_authenticated/tasks/$taskId")({
 
 type DetailTab = "overview" | "attack-chain" | "patches";
 
-function assigneeLabel(id: string | null): string {
-  if (!id) return "Unassigned";
-  return DUMMY_ASSIGNEES.find((a) => a.user_id === id)?.label ?? id;
-}
-
 function TaskDetailPage() {
   const { taskId } = Route.useParams();
-  const { getTask, getResults, start, complete, applyPatch } = useTaskRunner();
-  const task = getTask(taskId);
-  const results = getResults(taskId);
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<DetailTab>("overview");
+
+  const taskQ = useQuery({
+    ...taskQuery(taskId),
+    refetchInterval: (q) => (q.state.data?.status === "in_progress" ? 3000 : false),
+  });
+  const resultsQ = useQuery({
+    ...taskResultsQuery(taskId),
+    refetchInterval: (q) => {
+      const status = q.state.data?.job?.status ?? taskQ.data?.status;
+      return status === "running" || status === "dispatched" || status === "in_progress" ? 3000 : false;
+    },
+  });
+
+  const startMut = useMutation({
+    mutationFn: () => transitionTask(taskId, "start"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
+      setTab("overview");
+    },
+  });
+
+  const applyMut = useMutation({
+    mutationFn: (patchId: string) => applyTaskPatch(patchId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
+      qc.invalidateQueries({ queryKey: ["patches"] });
+    },
+  });
+
+  const task = taskQ.data;
+  const results = resultsQ.data;
   const unlocked = task ? resultsUnlocked(task.status) : false;
 
-  const [tab, setTab] = useState<DetailTab>("overview");
+  if (taskQ.isError) {
+    return (
+      <div className="mx-auto max-w-[900px]">
+        <Link
+          to="/tasks"
+          className="micro mb-3 inline-flex items-center gap-1"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <ArrowLeft size={12} strokeWidth={1.5} /> Back to Task Runner
+        </Link>
+        <ErrorBanner
+          message={taskQ.error instanceof Error ? taskQ.error.message : "Task not found or no longer available."}
+        />
+      </div>
+    );
+  }
 
   if (!task) {
     return (
@@ -40,25 +83,23 @@ function TaskDetailPage() {
         >
           <ArrowLeft size={12} strokeWidth={1.5} /> Back to Task Runner
         </Link>
-        <ErrorBanner message="Task not found or no longer available." />
+        <p className="micro" style={{ color: "var(--text-muted)" }}>
+          Loading task…
+        </p>
       </div>
     );
   }
 
-  const canStart = task.status === "assigned" || task.status === "draft" || task.status === "blocked";
-  const canComplete = task.status === "in_progress" || task.status === "blocked";
+  const jobError = results?.job?.error;
+  const jobStatus = results?.job?.status;
+  const jobFailed = jobStatus === "failed";
+  const canStart =
+    task.status === "assigned" ||
+    task.status === "draft" ||
+    task.status === "blocked" ||
+    (task.status === "in_progress" && jobFailed);
   const showRedTools = task.task_type === "red" || task.task_type === "both";
   const showBlueTools = task.task_type === "blue" || task.task_type === "both";
-
-  function handleStart() {
-    start(taskId);
-    setTab("overview");
-  }
-
-  function handleComplete() {
-    complete(taskId);
-    setTab("attack-chain");
-  }
 
   const tabs: { id: DetailTab; label: string; visible: boolean }[] = [
     { id: "overview", label: "Overview", visible: true },
@@ -125,7 +166,7 @@ function TaskDetailPage() {
             </div>
             <div>
               <Eyebrow>Assignee</Eyebrow>
-              <div className="mt-1">{assigneeLabel(task.assignee_id)}</div>
+              <div className="mt-1 mono">{task.assignee_id ? task.assignee_id.slice(0, 8) : "Unassigned"}</div>
             </div>
             <div>
               <Eyebrow>Patch scope</Eyebrow>
@@ -147,11 +188,23 @@ function TaskDetailPage() {
             >
               <div className="flex items-center gap-2">
                 <span className="live-dot size-2 rounded-full" style={{ background: "var(--accent-ember)" }} />
-                <span className="text-sm">Run in progress</span>
+                <span className="text-sm">
+                  Run in progress{jobStatus ? ` · job ${jobStatus}` : ""}
+                </span>
               </div>
               <p className="micro mt-1" style={{ color: "var(--text-muted)" }}>
-                Complete the task to reveal the Attack Chain and Patches for this target.
+                HexStrike tools report here as they finish. Attack Chain and Patches unlock when the job completes.
               </p>
+              {(results?.tools ?? []).length > 0 && (
+                <ul className="micro mt-2" style={{ color: "var(--text-secondary)" }}>
+                  {results!.tools.map((t) => (
+                    <li key={t.id} className="mono">
+                      {t.tool_name}
+                      {t.command_summary ? ` — ${t.command_summary}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <span
                 className="mt-3 block h-0.5 w-full overflow-hidden"
                 style={{ background: "var(--surface)" }}
@@ -164,24 +217,34 @@ function TaskDetailPage() {
             </div>
           )}
 
+          {jobError && (
+            <div className="mt-4">
+              <ErrorBanner message={jobError} />
+            </div>
+          )}
+
+          {startMut.isError && (
+            <div className="mt-4">
+              <ErrorBanner
+                message={
+                  startMut.error instanceof Error
+                    ? startMut.error.message
+                    : "Could not start the task"
+                }
+              />
+            </div>
+          )}
+
           <div className="mt-4 flex flex-wrap gap-2">
             {canStart && (
               <button
-                onClick={handleStart}
-                className="inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium"
+                onClick={() => startMut.mutate()}
+                disabled={startMut.isPending}
+                className="inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium disabled:opacity-60"
                 style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
               >
                 <Play size={14} strokeWidth={1.5} />
-                Start task
-              </button>
-            )}
-            {canComplete && (
-              <button
-                onClick={handleComplete}
-                className="rounded-sm px-3 py-1.5 text-sm font-medium"
-                style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
-              >
-                Complete task
+                {startMut.isPending ? "Starting…" : jobFailed ? "Retry task" : "Start task"}
               </button>
             )}
             {task.status === "in_progress" && showRedTools && (
@@ -216,14 +279,12 @@ function TaskDetailPage() {
         </Panel>
       )}
 
-      {tab === "attack-chain" && unlocked && (
-        <TaskAttackChain steps={results?.chain ?? []} />
-      )}
+      {tab === "attack-chain" && unlocked && <TaskAttackChain results={results} />}
 
       {tab === "patches" && unlocked && (
         <TaskPatches
           patches={results?.patches ?? []}
-          onApply={(id) => applyPatch(taskId, id)}
+          onApply={(id) => applyMut.mutate(id)}
         />
       )}
     </div>

@@ -22,6 +22,11 @@ class InternalJob(BaseModel):
     callback_base_url: str | None = None
     demo_safe_mode: bool = True
     allowlist: list[str] = Field(default_factory=list)
+    task_id: str | None = None
+    target: str | None = None
+    description: str | None = None
+    patch_scope: str | None = None
+    scans: list[dict[str, Any]] = Field(default_factory=list)
 
 
 async def _run(job: dict[str, Any]) -> None:
@@ -30,6 +35,10 @@ async def _run(job: dict[str, Any]) -> None:
         await deep_emulation.run(job)
     elif profile in {"defensive-validation"}:
         await defensive_validation.run(job)
+    elif profile in {"task-discovery"}:
+        from app.pipelines import task_discovery
+
+        await task_discovery.run(job)
     else:
         await surface_recon.run(job)
 

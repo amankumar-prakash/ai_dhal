@@ -50,3 +50,6 @@ class ApiReporter:
 
     async def post_chain_step(self, chain_id: str, payload: dict[str, Any]) -> Any:
         return await self._request("POST", f"attack-chains/{chain_id}/steps", json=payload)
+
+    async def post_patch(self, payload: dict[str, Any]) -> Any:
+        return await self._request("POST", "patches", json=payload)

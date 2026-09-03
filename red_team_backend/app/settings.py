@@ -14,7 +14,7 @@ class WorkerSettings(BaseSettings):
     red_service_token: str = "change-me-red"
     demo_safe_mode: str = "1"
     target_allowlist: str = ""
-    hexstrike_base_url: str = "http://host.docker.internal:8888"
+    hexstrike_base_url: str = "http://localhost:8005"
     hexstrike_mcp_script: str = ""
     hexstrike_stub: str = "0"
     # --- CAI disabled ---
