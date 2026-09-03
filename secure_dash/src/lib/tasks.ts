@@ -1,28 +1,20 @@
 import type { AppRole, Task, TaskType } from "./rbac-types";
 
-/** Analyst: any own in_progress task of matching type unlocks that team tools page. Manager: always. */
+/** Tools are open to every authenticated role. */
 export function canOpenRedTools(
-  role: AppRole,
-  tasks: Pick<Task, "assignee_id" | "status" | "task_type">[],
-  userId: string,
+  _role: AppRole,
+  _tasks: Pick<Task, "assignee_id" | "status" | "task_type">[],
+  _userId: string,
 ): boolean {
-  if (role === "security_manager") return true;
-  if (role !== "security_analyst") return false;
-  return tasks.some(
-    (t) => t.assignee_id === userId && t.status === "in_progress" && t.task_type === "red",
-  );
+  return true;
 }
 
 export function canOpenBlueTools(
-  role: AppRole,
-  tasks: Pick<Task, "assignee_id" | "status" | "task_type">[],
-  userId: string,
+  _role: AppRole,
+  _tasks: Pick<Task, "assignee_id" | "status" | "task_type">[],
+  _userId: string,
 ): boolean {
-  if (role === "security_manager") return true;
-  if (role !== "security_analyst") return false;
-  return tasks.some(
-    (t) => t.assignee_id === userId && t.status === "in_progress" && t.task_type === "blue",
-  );
+  return true;
 }
 
 export function unlockForType(
@@ -31,6 +23,9 @@ export function unlockForType(
   userId: string,
   type: TaskType,
 ): boolean {
+  if (type === "both") {
+    return canOpenRedTools(role, tasks, userId) && canOpenBlueTools(role, tasks, userId);
+  }
   return type === "red"
     ? canOpenRedTools(role, tasks, userId)
     : canOpenBlueTools(role, tasks, userId);

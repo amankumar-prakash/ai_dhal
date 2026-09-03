@@ -2,7 +2,8 @@ import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
-import { fetchMe } from "@/lib/api-client";
+import { apiLogin, fetchMe } from "@/lib/api-client";
+import { clearLabSession, setLabAccessToken } from "@/lib/session";
 import { ErrorBanner } from "@/components/sd/primitives";
 
 const INVITE_EXPIRED_MESSAGE =
@@ -54,11 +55,9 @@ function AuthPage() {
         setNotice("Account created. You can sign in now.");
         setMode("signin");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const { access_token } = await apiLogin(email, password);
+        setLabAccessToken(access_token);
 
-        // Reject unused invites past their TTL even though Supabase Auth itself
-        // accepted the password — Admin must re-issue credentials.
         try {
           const me = await fetchMe();
           const profile = me.profile;
@@ -69,7 +68,7 @@ function AuthPage() {
             !!profile.invite_expires_at &&
             new Date(profile.invite_expires_at).getTime() < Date.now();
           if (expired) {
-            await supabase.auth.signOut();
+            clearLabSession();
             setError(INVITE_EXPIRED_MESSAGE);
             return;
           }

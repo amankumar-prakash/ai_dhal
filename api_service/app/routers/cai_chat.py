@@ -4,12 +4,12 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from app.deps import Principal, PrincipalKind, require_jwt
+from app.deps import Principal, require_jwt
 from app.schemas.models import CaiMessageCreate, CaiSessionCreate, CaiSessionOut
-from app.services import cai_proxy, identity
+from app.services import cai_proxy
 
 router = APIRouter(prefix="/cai", tags=["cai-chat"])
 
@@ -17,22 +17,9 @@ router = APIRouter(prefix="/cai", tags=["cai-chat"])
 _SESSION_TEAM: dict[str, str] = {}
 
 
-def _require_tool_access(principal: Principal, team: Literal["red", "blue"]) -> None:
-    if principal.kind in (PrincipalKind.admin, PrincipalKind.user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tool chat denied for this role")
-    if principal.kind == PrincipalKind.security_manager:
-        return
-    if principal.kind != PrincipalKind.security_analyst or not principal.user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Analyst or Manager required")
-    unlock = identity.tool_unlock_for(UUID(principal.user_id), principal.role or "user")
-    if not unlock.get(team):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"No {team} tool unlock")
-
-
 @router.post("/sessions", response_model=CaiSessionOut, status_code=201)
 async def create_session(body: CaiSessionCreate, principal: Principal = Depends(require_jwt)):
     assert principal.user_id
-    _require_tool_access(principal, body.team)
     if body.message is not None and not body.message.strip():
         raise HTTPException(status_code=400, detail="message must be non-empty when provided")
     data = await cai_proxy.create_session(
@@ -55,7 +42,6 @@ async def get_session(
     if not resolved:
         raise HTTPException(status_code=404, detail="Session not found")
     _SESSION_TEAM[str(session_id)] = resolved
-    _require_tool_access(principal, resolved)
     return await cai_proxy.get_session(resolved, session_id)
 
 
@@ -70,7 +56,6 @@ async def post_message(
     if not resolved:
         raise HTTPException(status_code=404, detail="Session not found")
     _SESSION_TEAM[str(session_id)] = resolved
-    _require_tool_access(principal, resolved)
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="empty content")
     return await cai_proxy.post_message(resolved, session_id, body.content)
@@ -86,7 +71,6 @@ async def stop_session(
     if not resolved:
         raise HTTPException(status_code=404, detail="Session not found")
     _SESSION_TEAM[str(session_id)] = resolved
-    _require_tool_access(principal, resolved)
     return await cai_proxy.stop_session(resolved, session_id)
 
 
@@ -101,7 +85,6 @@ async def stream_events(
     if not resolved:
         raise HTTPException(status_code=404, detail="Session not found")
     _SESSION_TEAM[str(session_id)] = resolved
-    _require_tool_access(principal, resolved)
 
     async def gen():
         async for chunk in cai_proxy.stream_events(resolved, session_id, after_seq):

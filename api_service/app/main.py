@@ -1,3 +1,4 @@
+import os
 from collections import defaultdict, deque
 from time import time
 
@@ -10,6 +11,7 @@ from app.db.store import get_store
 from app.routers import (
     admin_users,
     assets,
+    auth_login,
     cai_chat,
     findings,
     jobs,
@@ -24,6 +26,7 @@ from app.routers import (
 app = FastAPI(title="Red/Blue Platform API", version="0.1.0")
 
 API = "/api/v1"
+app.include_router(auth_login.router, prefix=API)
 app.include_router(assets.router, prefix=API)
 app.include_router(scans.router, prefix=API)
 app.include_router(findings.router, prefix=API)
@@ -63,17 +66,33 @@ class JobRateLimitMiddleware(BaseHTTPMiddleware):
 
 # Browser UI (Vite) calls this API cross-origin with Authorization → needs preflight.
 # Middleware is applied in reverse order of add_middleware; add CORS last so it is outermost.
-app.add_middleware(JobRateLimitMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+def _cors_origins() -> list[str]:
+    origins = [
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:8081",
         "http://127.0.0.1:8081",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-    ],
+        "http://localhost:10100",
+        "http://127.0.0.1:10100",
+    ]
+    public_ip = (os.environ.get("PUBLIC_IPADDR") or "").strip()
+    public_ui = (os.environ.get("VAST_TCP_PORT_10100") or "").strip()
+    if public_ip and public_ui:
+        origins.extend(
+            [
+                f"http://{public_ip}:{public_ui}",
+                f"https://{public_ip}:{public_ui}",
+            ]
+        )
+    return origins
+
+
+app.add_middleware(JobRateLimitMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -111,6 +130,9 @@ def _seed_lab_assets() -> None:
 @app.on_event("startup")
 def on_startup():
     _seed_lab_assets()
+    from app.lab_users import seed_lab_identities
+
+    seed_lab_identities()
 
 
 @app.get(f"{API}/health")

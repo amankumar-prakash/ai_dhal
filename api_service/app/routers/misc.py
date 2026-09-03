@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
-from app.deps import Principal, PrincipalKind, deny_service_destructive, require_jwt, require_jwt_or_service, require_service
+from app.deps import Principal, deny_service_destructive, require_jwt, require_jwt_or_service, require_service
 from app.schemas.models import AttackChainCreate, AttackChainStepCreate, RoleAssign, ToolRunCreate
 from app.services import crud
 
@@ -39,8 +39,6 @@ def list_roles(_: Principal = Depends(require_jwt)):
 @router_roles.post("", status_code=201)
 def assign_role(body: RoleAssign, principal: Principal = Depends(require_jwt)):
     deny_service_destructive(principal)
-    if principal.kind != PrincipalKind.admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return crud.assign_role(body.user_id, body.role)
 
 

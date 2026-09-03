@@ -1,4 +1,4 @@
-"""API AuthZ for CAI chat."""
+"""CAI chat is open to any authenticated role."""
 from __future__ import annotations
 
 from uuid import uuid4
@@ -17,7 +17,7 @@ def client(monkeypatch):
     from app.config import get_settings
 
     get_settings.cache_clear()
-    # avoid real worker calls — patch proxy
+
     async def fake_create(**kwargs):
         return {
             "id": str(uuid4()),
@@ -46,45 +46,13 @@ def _auth(monkeypatch, uid, role):
     monkeypatch.setattr("app.deps.decode_access_token", fake_decode)
 
 
-def test_manager_can_create(client, monkeypatch):
+@pytest.mark.parametrize("role", ["security_manager", "security_analyst", "user", "admin"])
+def test_any_role_can_create_cai_session(client, monkeypatch, role):
     uid = uuid4()
-    _auth(monkeypatch, uid, "security_manager")
-    r = client.post(
-        "/api/v1/cai/sessions",
-        headers={"Authorization": "Bearer x"},
-        json={"team": "red", "message": "hi"},
-    )
-    assert r.status_code == 201, r.text
-
-
-def test_admin_denied(client, monkeypatch):
-    uid = uuid4()
-    _auth(monkeypatch, uid, "admin")
-    r = client.post(
-        "/api/v1/cai/sessions",
-        headers={"Authorization": "Bearer x"},
-        json={"team": "red", "message": "hi"},
-    )
-    assert r.status_code == 403
-
-
-def test_user_denied(client, monkeypatch):
-    uid = uuid4()
-    _auth(monkeypatch, uid, "user")
-    r = client.post(
-        "/api/v1/cai/sessions",
-        headers={"Authorization": "Bearer x"},
-        json={"team": "red", "message": "hi"},
-    )
-    assert r.status_code == 403
-
-
-def test_analyst_without_unlock_denied_blue(client, monkeypatch):
-    uid = uuid4()
-    _auth(monkeypatch, uid, "security_analyst")
+    _auth(monkeypatch, uid, role)
     r = client.post(
         "/api/v1/cai/sessions",
         headers={"Authorization": "Bearer x"},
         json={"team": "blue", "message": "hi"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 201, r.text

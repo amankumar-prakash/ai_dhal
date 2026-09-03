@@ -112,8 +112,8 @@ export function listTaskAudit(id: string): Promise<TaskAuditEvent[]> {
   return apiFetch<TaskAuditEvent[]>(`/tasks/${id}/audit`);
 }
 
-/** `security_analyst` rows from `/roles` — used for the Manager assignee picker. */
-export function listAnalystRoleRows(): Promise<{ user_id: string; role: string }[]> {
+/** Role rows from `/roles` — used for the assignee picker (any ops user). */
+export function listRoleRows(): Promise<{ user_id: string; role: string }[]> {
   return apiFetch<{ user_id: string; role: string }[]>("/roles");
 }
 
@@ -151,7 +151,7 @@ export function taskAuditQuery(id: string) {
   });
 }
 
-export const analystRolesQuery = queryOptions({
-  queryKey: ["roles", "security_analyst"],
-  queryFn: async () => (await listAnalystRoleRows()).filter((r) => r.role === "security_analyst"),
+export const assigneeRolesQuery = queryOptions({
+  queryKey: ["roles", "assignees"],
+  queryFn: () => listRoleRows(),
 });

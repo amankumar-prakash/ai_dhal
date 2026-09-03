@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     blue_service_token: str = "change-me-blue"
     red_worker_url: str = "http://localhost:8001"
     blue_worker_url: str = "http://localhost:8002"
+    test_username: str = ""
+    test_password: str = ""
+    test_manager_username: str = ""
+    test_manager_password: str = ""
 
     def elevated_key(self) -> str:
         return (self.supabase_secret_key or self.supabase_service_role_key or "").strip()

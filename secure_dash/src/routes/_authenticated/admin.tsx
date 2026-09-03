@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
-import { requireAdminRole } from "@/lib/route-guards";
 import { CreateUserForm } from "@/components/admin/CreateUserForm";
 import { UserList, adminUsersQueryKey } from "@/components/admin/UserList";
 import { PageHeader, Panel } from "@/components/sd/primitives";
@@ -10,9 +9,6 @@ export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [{ title: "Admin — SecureDash" }],
   }),
-  beforeLoad: ({ context }) => {
-    requireAdminRole(context.me);
-  },
   component: AdminPage,
 });
 
@@ -23,7 +19,7 @@ function AdminPage() {
     <div className="mx-auto max-w-[1200px]">
       <PageHeader
         title="Admin"
-        subtitle="Provision analysts, managers and admins. Admin accounts are identity-only and never see operational data."
+        subtitle="Provision users and assign roles."
       />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
         <CreateUserForm onCreated={() => qc.invalidateQueries({ queryKey: adminUsersQueryKey })} />

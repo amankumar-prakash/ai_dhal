@@ -1,4 +1,4 @@
-"""Lifecycle AuthZ: Manager review/close; Analyst denied."""
+"""Lifecycle: any ops role can review/close; status rules still apply."""
 from __future__ import annotations
 
 from uuid import uuid4
@@ -21,7 +21,7 @@ def _mem(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_analyst_denied_review_close():
+def test_analyst_can_review_close():
     mgr = uuid4()
     analyst = uuid4()
     identity.set_role(mgr, "security_manager")
@@ -35,12 +35,35 @@ def test_analyst_denied_review_close():
     tid = task["id"]
     task_svc.apply_patch(tid, TaskPatch(action="start"), an_p)
     task_svc.apply_patch(tid, TaskPatch(action="complete"), an_p)
-    with pytest.raises(HTTPException) as ei:
-        task_svc.apply_patch(tid, TaskPatch(action="review"), an_p)
-    assert ei.value.status_code == 403
-    with pytest.raises(HTTPException) as ei2:
-        task_svc.apply_patch(tid, TaskPatch(action="close"), an_p)
-    assert ei2.value.status_code == 403
-    task_svc.apply_patch(tid, TaskPatch(action="review"), mgr_p)
-    closed = task_svc.apply_patch(tid, TaskPatch(action="close"), mgr_p)
+    reviewed = task_svc.apply_patch(tid, TaskPatch(action="review"), an_p)
+    assert reviewed["status"] == "reviewed"
+    closed = task_svc.apply_patch(tid, TaskPatch(action="close"), an_p)
     assert closed["status"] == "closed"
+
+
+def test_user_can_create_and_close():
+    user = uuid4()
+    identity.set_role(user, "user")
+    user_p = Principal(kind=PrincipalKind.user, user_id=str(user), role="user")
+    task = task_svc.create_task(
+        TaskCreate(target="u", description="d", patch_scope="p", task_type="red", assignee_id=user),
+        user_p,
+    )
+    tid = task["id"]
+    task_svc.apply_patch(tid, TaskPatch(action="start"), user_p)
+    task_svc.apply_patch(tid, TaskPatch(action="complete"), user_p)
+    closed = task_svc.apply_patch(tid, TaskPatch(action="close"), user_p)
+    assert closed["status"] == "closed"
+
+
+def test_invalid_transition_still_rejected():
+    user = uuid4()
+    identity.set_role(user, "user")
+    user_p = Principal(kind=PrincipalKind.user, user_id=str(user), role="user")
+    task = task_svc.create_task(
+        TaskCreate(target="bad", description="d", patch_scope="p", task_type="red"),
+        user_p,
+    )
+    with pytest.raises(HTTPException) as ei:
+        task_svc.apply_patch(task["id"], TaskPatch(action="review"), user_p)
+    assert ei.value.status_code == 400

@@ -39,4 +39,4 @@ def test_principal_admin_from_user_roles(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["role"] == "admin"
-    assert body["tool_unlock"] == {"red": False, "blue": False}
+    assert body["tool_unlock"] == {"red": True, "blue": True}

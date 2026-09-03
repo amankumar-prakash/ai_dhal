@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from app.db.store import get_store
-from app.deps import Principal, PrincipalKind
+from app.deps import Principal
 
 
 def assignee_asset_ids(user_id: str) -> set[str]:
@@ -21,12 +21,5 @@ def assignee_asset_ids(user_id: str) -> set[str]:
     return ids
 
 
-def filter_ops_rows(rows: list[dict[str, Any]], principal: Principal) -> list[dict[str, Any]]:
-    if principal.kind == PrincipalKind.security_manager or principal.kind == PrincipalKind.user:
-        return rows
-    if principal.kind != PrincipalKind.security_analyst or not principal.user_id:
-        return rows
-    allowed = assignee_asset_ids(principal.user_id)
-    if not allowed:
-        return []
-    return [r for r in rows if r.get("asset_id") is not None and str(r.get("asset_id")) in allowed]
+def filter_ops_rows(rows: list[dict[str, Any]], _principal: Principal) -> list[dict[str, Any]]:
+    return rows

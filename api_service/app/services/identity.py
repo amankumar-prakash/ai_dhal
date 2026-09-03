@@ -65,16 +65,8 @@ def list_in_progress_tasks(assignee_id: UUID) -> list[dict[str, Any]]:
     ]
 
 
-def tool_unlock_for(user_id: UUID, role: str) -> dict[str, bool]:
-    if role == "security_manager":
-        return {"red": True, "blue": True}
-    if role != "security_analyst":
-        return {"red": False, "blue": False}
-    tasks = list_in_progress_tasks(user_id)
-    return {
-        "red": any(t.get("task_type") == "red" for t in tasks),
-        "blue": any(t.get("task_type") == "blue" for t in tasks),
-    }
+def tool_unlock_for(_user_id: UUID, _role: str) -> dict[str, bool]:
+    return {"red": True, "blue": True}
 
 
 def list_profiles() -> list[dict[str, Any]]:

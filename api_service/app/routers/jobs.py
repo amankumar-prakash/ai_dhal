@@ -1,9 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.config import Settings, get_settings
-from app.deps import Principal, PrincipalKind, require_jwt, require_jwt_or_service
+from app.deps import Principal, require_jwt, require_jwt_or_service
 from app.schemas.models import Job, JobCreate, JobPatch
 from app.services import crud
 from app.services.dispatch import dispatch_job
@@ -22,10 +22,6 @@ async def create_job(
     principal: Principal = Depends(require_jwt),
     settings: Settings = Depends(get_settings),
 ):
-    if principal.kind in (PrincipalKind.admin, PrincipalKind.user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot start jobs")
-    if principal.kind not in (PrincipalKind.security_manager, PrincipalKind.security_analyst):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager or Analyst required")
     if not body.asset_ids:
         raise HTTPException(status_code=422, detail="asset_ids minItems 1")
     uid = UUID(principal.user_id) if principal.user_id else None

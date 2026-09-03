@@ -27,6 +27,22 @@ def decode_access_token(token: str, settings: Settings | None = None) -> dict:
     jwks = settings.jwks_url()
     secret = (settings.supabase_jwt_secret or "").strip()
 
+    alg = None
+    try:
+        alg = jwt.get_unverified_header(token).get("alg")
+    except Exception:  # noqa: BLE001
+        alg = None
+
+    # Lab / memory tokens are HS256. Prefer the local secret so we never wait on
+    # a dead JWKS host (the configured Supabase project is NXDOMAIN).
+    if secret and alg == "HS256":
+        return jwt.decode(
+            token,
+            secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+
     if jwks:
         try:
             client = _jwks_client(jwks)

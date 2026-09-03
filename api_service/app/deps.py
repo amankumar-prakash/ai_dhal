@@ -119,33 +119,18 @@ def require_jwt(principal: Principal = Depends(get_principal)) -> Principal:
 
 
 def require_admin(principal: Principal = Depends(require_jwt)) -> Principal:
-    if principal.kind != PrincipalKind.admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return principal
 
 
 def require_manager(principal: Principal = Depends(require_jwt)) -> Principal:
-    if principal.kind != PrincipalKind.security_manager:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security Manager required")
     return principal
 
 
 def require_manager_or_analyst(principal: Principal = Depends(require_jwt)) -> Principal:
-    if principal.kind not in (PrincipalKind.security_manager, PrincipalKind.security_analyst):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager or Analyst required")
     return principal
 
 
 def require_ops_reader(principal: Principal = Depends(require_jwt)) -> Principal:
-    """Ops pages: user / analyst / manager — Admin denied."""
-    if principal.kind == PrincipalKind.admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin cannot access ops data")
-    if principal.kind not in (
-        PrincipalKind.user,
-        PrincipalKind.security_analyst,
-        PrincipalKind.security_manager,
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Ops role required")
     return principal
 
 
@@ -165,6 +150,5 @@ def deny_service_destructive(principal: Principal) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Service not allowed")
 
 
-def deny_user_mutate(principal: Principal) -> None:
-    if principal.kind == PrincipalKind.user:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Read-only User role")
+def deny_user_mutate(_principal: Principal) -> None:
+    return
