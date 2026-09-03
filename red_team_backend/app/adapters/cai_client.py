@@ -1,10 +1,9 @@
 """CAI (Cybersecurity AI) client — stub plan or live one-shot CLI invocation.
 
-CAI DISABLED — not used by pipelines; kept for reference only.
-
-Live mode runs `uv run cai "<prompt>"` (falling back to a bare `cai` on `PATH`) inside
-`CAI_WORKDIR`, treating the CLI's stdout as the kill-chain plan text. It fails closed
-(raises `RuntimeError`) when the workdir is missing, no CAI executable is found, the
+Stub mode (CAI_STUB=1): uses the LLM client to generate a kill-chain plan summary.
+Live mode (CAI_STUB=0): runs `uv run cai "<prompt>"` (falling back to a bare `cai` on PATH) inside
+`CAI_WORKDIR`, treating the CLI stdout as the kill-chain plan text. Fails closed
+(raises RuntimeError) when the workdir is missing, no CAI executable is found, the
 process errors, or it times out — never silently falls back to the stub plan.
 """
 from __future__ import annotations

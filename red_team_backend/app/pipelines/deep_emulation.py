@@ -1,9 +1,9 @@
-"""Deep emulation — uses LLM stub/client (+ CAI plan disabled)."""
+"""Deep emulation — uses CAI plan_chain (stub or live) + LLM client."""
 from __future__ import annotations
 
 from typing import Any
 
-# from app.adapters import cai_client  # CAI disabled
+from app.adapters import cai_client
 from app.adapters import llm_client
 from app.guardrails import demo_blocks_profile, in_allowlist
 from app.pipelines import surface_recon
@@ -41,8 +41,7 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
             )
             return
 
-        # plan = await cai_client.plan_chain(job, settings)  # CAI disabled
-        plan = {"stages": list(_STAGES), "source": "plan-stub"}
+        plan = await cai_client.plan_chain(job, settings)
         reasoning = await llm_client.complete(f"Summarize red deep-emulation for job {job_id}", settings)
         chain = await reporter.post_attack_chain(
             {
