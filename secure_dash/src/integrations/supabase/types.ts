@@ -551,6 +551,41 @@ export type Database = {
         }
         Relationships: []
       }
+      job_progress_events: {
+        Row: {
+          id: string
+          job_id: string
+          kind: string
+          message: string
+          meta: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          kind: string
+          message: string
+          meta?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          kind?: string
+          message?: string
+          meta?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_progress_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -581,6 +616,7 @@ export type Database = {
         | "assigned"
         | "started"
         | "started_on_behalf"
+        | "stopped"
         | "blocked"
         | "unblocked"
         | "completed"
@@ -759,6 +795,7 @@ export const Constants = {
         "assigned",
         "started",
         "started_on_behalf",
+        "stopped",
         "blocked",
         "unblocked",
         "completed",

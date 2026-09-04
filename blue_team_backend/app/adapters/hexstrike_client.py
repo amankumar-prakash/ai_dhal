@@ -104,3 +104,71 @@ async def run_vuln_scan(target: str, settings: WorkerSettings | None = None) -> 
         "findings": _parse_nuclei_findings(target, data.get("stdout", "")),
         "raw": data,
     }
+
+
+def _jsonish(value: Any) -> bool:
+    return isinstance(value, (str, int, float, bool, type(None), list, dict))
+
+
+def _host_needle(target: str) -> str:
+    raw = (target or "").strip().lower()
+    raw = raw.replace("http://", "").replace("https://", "")
+    return raw.split("/")[0].split(":")[0]
+
+
+async def list_processes(settings: WorkerSettings | None = None) -> list[dict[str, Any]]:
+    settings = settings or get_settings()
+    url = f"{settings.hexstrike_base_url.rstrip('/')}/api/processes/list"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        data = resp.json()
+    active = data.get("active_processes") or {}
+    rows: list[dict[str, Any]] = []
+    if isinstance(active, dict):
+        items = active.items()
+    elif isinstance(active, list):
+        items = [(p.get("pid"), p) for p in active if isinstance(p, dict)]
+    else:
+        items = []
+    for pid, info in items:
+        if not isinstance(info, dict):
+            continue
+        row = {k: v for k, v in info.items() if k != "process" and _jsonish(v)}
+        if "pid" not in row:
+            try:
+                row["pid"] = int(pid)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                row["pid"] = pid
+        rows.append(row)
+    return rows
+
+
+async def terminate_processes_for_target(
+    target: str,
+    settings: WorkerSettings | None = None,
+) -> int:
+    settings = settings or get_settings()
+    host = _host_needle(target)
+    if not host:
+        return 0
+    try:
+        procs = await list_processes(settings)
+    except Exception:
+        return 0
+    killed = 0
+    base = settings.hexstrike_base_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for proc in procs:
+            cmd = str(proc.get("command") or "").lower()
+            if host not in cmd and target.lower() not in cmd:
+                continue
+            pid = proc.get("pid")
+            if pid is None:
+                continue
+            try:
+                await client.post(f"{base}/api/processes/terminate/{int(pid)}")
+                killed += 1
+            except Exception:
+                continue
+    return killed

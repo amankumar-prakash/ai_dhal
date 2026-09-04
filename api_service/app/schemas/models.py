@@ -118,6 +118,12 @@ class JobPatch(BaseModel):
     finished_at: datetime | None = None
 
 
+class JobProgressCreate(BaseModel):
+    kind: Literal["thinking", "tool", "process", "status"]
+    message: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
 class Job(BaseModel):
     id: UUID
     team: TeamSide
@@ -258,6 +264,7 @@ class TaskPatch(BaseModel):
     action: Literal[
         "assign",
         "start",
+        "stop",
         "block",
         "unblock",
         "complete",

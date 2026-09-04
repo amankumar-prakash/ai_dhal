@@ -3,8 +3,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.config import Settings, get_settings
-from app.deps import Principal, require_jwt, require_jwt_or_service
-from app.schemas.models import Job, JobCreate, JobPatch
+from app.deps import Principal, require_jwt, require_jwt_or_service, require_service
+from app.schemas.models import Job, JobCreate, JobPatch, JobProgressCreate
 from app.services import crud
 from app.services.dispatch import dispatch_job
 
@@ -42,3 +42,12 @@ def patch_job(job_id: UUID, body: JobPatch, _: Principal = Depends(require_jwt_o
 @router.post("/{job_id}/cancel", response_model=Job)
 def cancel_job(job_id: UUID, _: Principal = Depends(require_jwt)):
     return crud.cancel_job(job_id)
+
+
+@router.post("/{job_id}/progress", status_code=201)
+def append_progress(
+    job_id: UUID,
+    body: JobProgressCreate,
+    _: Principal = Depends(require_service),
+):
+    return crud.append_job_progress(job_id, body.kind, body.message, body.meta)

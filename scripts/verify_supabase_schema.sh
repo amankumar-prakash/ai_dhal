@@ -53,6 +53,7 @@ probe "jobs?select=id&limit=1" ok
 probe "patches?select=id&limit=1" ok
 probe "tool_runs?select=id&limit=1" ok
 probe "scans?select=team,job_id,source_service&limit=1" ok
+probe "job_progress_events?select=id&limit=1" ok
 
 if [[ $fail -ne 0 ]]; then
   echo "Schema verify failed — apply secure_dash/supabase/migrations/20260804120000_red_blue_platform.sql"

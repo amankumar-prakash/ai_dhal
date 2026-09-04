@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, GitBranch, Play, ShieldAlert, ShieldCheck, Swords } from "lucide-react";
+import { ArrowLeft, GitBranch, Play, ScrollText, ShieldAlert, ShieldCheck, Square, Swords } from "lucide-react";
 import { relTime } from "@/lib/security";
 import { resultsUnlocked } from "@/lib/tasks";
 import { applyTaskPatch, taskQuery, taskResultsQuery, transitionTask } from "@/lib/tasks-api";
 import { StatusPill } from "@/components/tasks/TaskBoard";
 import { TaskAttackChain } from "@/components/tasks/TaskAttackChain";
+import { TaskLogs } from "@/components/tasks/TaskLogs";
 import { TaskPatches } from "@/components/tasks/TaskPatches";
+import { TaskRunClock, TaskRunProgress } from "@/components/tasks/TaskRunProgress";
 import { ErrorBanner, Eyebrow, PageHeader, Panel } from "@/components/sd/primitives";
 
 export const Route = createFileRoute("/_authenticated/tasks/$taskId")({
@@ -15,7 +17,7 @@ export const Route = createFileRoute("/_authenticated/tasks/$taskId")({
   component: TaskDetailPage,
 });
 
-type DetailTab = "overview" | "attack-chain" | "patches";
+type DetailTab = "overview" | "logs" | "attack-chain" | "patches";
 
 function TaskDetailPage() {
   const { taskId } = Route.useParams();
@@ -30,7 +32,9 @@ function TaskDetailPage() {
     ...taskResultsQuery(taskId),
     refetchInterval: (q) => {
       const status = q.state.data?.job?.status ?? taskQ.data?.status;
-      return status === "running" || status === "dispatched" || status === "in_progress" ? 3000 : false;
+      return status === "running" || status === "dispatched" || status === "queued" || status === "in_progress"
+        ? 1000
+        : false;
     },
   });
 
@@ -41,6 +45,15 @@ function TaskDetailPage() {
       qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
       qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
       setTab("overview");
+    },
+  });
+
+  const stopMut = useMutation({
+    mutationFn: () => transitionTask(taskId, "stop"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
     },
   });
 
@@ -93,16 +106,22 @@ function TaskDetailPage() {
   const jobError = results?.job?.error;
   const jobStatus = results?.job?.status;
   const jobFailed = jobStatus === "failed";
+  const jobLive = !jobStatus || jobStatus === "queued" || jobStatus === "dispatched" || jobStatus === "running";
   const canStart =
     task.status === "assigned" ||
     task.status === "draft" ||
     task.status === "blocked" ||
     (task.status === "in_progress" && jobFailed);
+  const canStop = task.status === "in_progress" && jobLive && !jobFailed;
+  const showRunCard =
+    task.status === "in_progress" || (task.status === "blocked" && jobStatus === "cancelled");
+  const showLiveClock = task.status === "in_progress" && jobLive && !jobFailed;
   const showRedTools = task.task_type === "red" || task.task_type === "both";
   const showBlueTools = task.task_type === "blue" || task.task_type === "both";
 
   const tabs: { id: DetailTab; label: string; visible: boolean }[] = [
     { id: "overview", label: "Overview", visible: true },
+    { id: "logs", label: "Logs", visible: true },
     { id: "attack-chain", label: "Attack Chain", visible: unlocked },
     { id: "patches", label: "Patches", visible: unlocked },
   ];
@@ -144,6 +163,7 @@ function TaskDetailPage() {
                   borderBottom: `2px solid ${active ? "var(--text-primary)" : "transparent"}`,
                 }}
               >
+                {t.id === "logs" && <ScrollText size={14} strokeWidth={1.5} />}
                 {t.id === "attack-chain" && <GitBranch size={14} strokeWidth={1.5} />}
                 {t.id === "patches" && <ShieldCheck size={14} strokeWidth={1.5} />}
                 {t.label}
@@ -173,48 +193,23 @@ function TaskDetailPage() {
               <div className="mt-1">{task.patch_scope || "—"}</div>
             </div>
             <div>
-              <Eyebrow>Started</Eyebrow>
-              <div className="mono mt-1">{relTime(task.started_at)}</div>
+              {showRunCard ? (
+                <TaskRunClock task={task} results={results} ticking={showLiveClock} />
+              ) : (
+                <>
+                  <Eyebrow>Started</Eyebrow>
+                  <div className="mono mt-1">{relTime(task.started_at)}</div>
+                </>
+              )}
             </div>
           </div>
 
-          {task.status === "in_progress" && (
-            <div
-              className="mt-4 rounded-sm p-3"
-              style={{
-                background: "var(--surface-raised)",
-                border: "1px solid var(--border-hairline)",
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="live-dot size-2 rounded-full" style={{ background: "var(--accent-ember)" }} />
-                <span className="text-sm">
-                  Run in progress{jobStatus ? ` · job ${jobStatus}` : ""}
-                </span>
-              </div>
-              <p className="micro mt-1" style={{ color: "var(--text-muted)" }}>
-                HexStrike tools report here as they finish. Attack Chain and Patches unlock when the job completes.
-              </p>
-              {(results?.tools ?? []).length > 0 && (
-                <ul className="micro mt-2" style={{ color: "var(--text-secondary)" }}>
-                  {results!.tools.map((t) => (
-                    <li key={t.id} className="mono">
-                      {t.tool_name}
-                      {t.command_summary ? ` — ${t.command_summary}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <span
-                className="mt-3 block h-0.5 w-full overflow-hidden"
-                style={{ background: "var(--surface)" }}
-              >
-                <span
-                  className="indeterminate-bar block h-full w-1/3"
-                  style={{ background: "var(--accent-ember)" }}
-                />
-              </span>
-            </div>
+          {showRunCard && (
+            <TaskRunProgress
+              task={task}
+              results={results}
+              stopped={task.status === "blocked" || jobStatus === "cancelled"}
+            />
           )}
 
           {jobError && (
@@ -235,7 +230,40 @@ function TaskDetailPage() {
             </div>
           )}
 
+          {stopMut.isError && (
+            <div className="mt-4">
+              <ErrorBanner
+                message={
+                  stopMut.error instanceof Error ? stopMut.error.message : "Could not stop the task"
+                }
+              />
+            </div>
+          )}
+
           <div className="mt-4 flex flex-wrap gap-2">
+            {canStop && (
+              <button
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      "Stop this run? HexStrike processes will be killed.",
+                    )
+                  ) {
+                    return;
+                  }
+                  stopMut.mutate();
+                }}
+                disabled={stopMut.isPending}
+                className="inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm disabled:opacity-60"
+                style={{
+                  border: "1px solid var(--accent-ember)",
+                  color: "var(--accent-ember)",
+                }}
+              >
+                <Square size={14} strokeWidth={1.5} />
+                {stopMut.isPending ? "Stopping…" : "Stop"}
+              </button>
+            )}
             {canStart && (
               <button
                 onClick={() => startMut.mutate()}
@@ -278,6 +306,8 @@ function TaskDetailPage() {
           </div>
         </Panel>
       )}
+
+      {tab === "logs" && <TaskLogs task={task} results={results} />}
 
       {tab === "attack-chain" && unlocked && <TaskAttackChain results={results} />}
 

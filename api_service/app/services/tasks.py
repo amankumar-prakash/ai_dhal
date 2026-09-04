@@ -21,6 +21,21 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _estimated_duration_seconds(job: dict[str, Any], progress: list[dict[str, Any]]) -> int:
+    for ev in reversed(progress):
+        meta = ev.get("meta") or {}
+        raw = meta.get("estimated_duration_seconds")
+        if raw is not None:
+            try:
+                return max(1, int(raw))
+            except (TypeError, ValueError):
+                pass
+    profile = str(job.get("profile") or "")
+    if profile == "task-discovery":
+        return 900
+    return 300
+
+
 def _audit(
     task_id: UUID,
     actor_id: UUID | None,
@@ -200,6 +215,31 @@ def _transition(
             audit_action = "started_on_behalf"
         else:
             audit_action = "started"
+    elif action == "stop":
+        if cur != "in_progress":
+            raise HTTPException(status_code=400, detail="Can only stop In Progress")
+        linked = task.get("linked_job_id")
+        if linked:
+            from app.services import crud
+            from app.services.crud import TERMINAL_JOB
+
+            try:
+                existing = crud.get_job(
+                    linked if isinstance(linked, UUID) else UUID(str(linked))
+                )
+            except HTTPException:
+                existing = None
+            if existing and str(existing.get("status")) not in TERMINAL_JOB:
+                try:
+                    crud.cancel_job(
+                        linked if isinstance(linked, UUID) else UUID(str(linked))
+                    )
+                except HTTPException as exc:
+                    if exc.status_code != 409:
+                        raise
+        to_status = "blocked"
+        patch["status"] = to_status
+        audit_action = "stopped"
     elif action == "block":
         if cur != "in_progress":
             raise HTTPException(status_code=400, detail="Can only block In Progress")
@@ -452,7 +492,7 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
 
     linked = task.get("linked_job_id")
     if not linked:
-        return {"task": task, "job": None, "tools": [], "findings": [], "chain": None, "patches": []}
+        return {"task": task, "job": None, "tools": [], "findings": [], "chain": None, "patches": [], "progress": []}
 
     job_id = linked if isinstance(linked, UUID) else UUID(str(linked))
     try:
@@ -461,6 +501,7 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
         job = None
 
     tools = crud.list_tool_runs(job_id)
+    progress = crud.list_job_progress(job_id)
     scans = crud.scans_for_job(job_id)
     scan_ids = {str(s["id"]) for s in scans}
     asset_ids = {str(s.get("asset_id")) for s in scans if s.get("asset_id")}
@@ -478,10 +519,10 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
 
     chosen = None
     for c in crud.list_chains():
-        if str(c.get("scan_id") or "") in scan_ids:
+        if scan_ids and str(c.get("scan_id") or "") in scan_ids:
             chosen = c
             break
-    if chosen is None and scan_ids:
+    if chosen is None:
         # Chains created without scan_id still belong to this run if named with the job.
         job_short = str(job_id)[:8]
         for c in crud.list_chains():
@@ -494,12 +535,17 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
         steps = sorted(steps, key=lambda s: int(s.get("sequence") or 0))
         chain = {**chosen, "steps": steps}
 
+    job_out = dict(job) if job else None
+    if job_out is not None:
+        job_out["estimated_duration_seconds"] = _estimated_duration_seconds(job_out, progress)
+
     return {
         "task": task,
-        "job": job,
+        "job": job_out,
         "tools": tools,
         "findings": findings,
         "chain": chain,
         "patches": patches,
+        "progress": progress,
     }
 

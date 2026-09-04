@@ -16,6 +16,12 @@ async def _dispatch_started(job: dict, task: dict) -> None:
     await dispatch_job(job, get_settings(), task=task)
 
 
+async def _cancel_worker(task: dict) -> None:
+    from app.services.dispatch import cancel_worker_job
+
+    await cancel_worker_job(task, get_settings())
+
+
 @router.get("")
 def list_tasks(
     principal: Principal = Depends(require_ops_reader),
@@ -53,6 +59,8 @@ async def patch_task(
         updated, job = await task_svc.start_discovery_run(updated, principal)
         if job:
             background.add_task(_dispatch_started, job, updated)
+    elif body.action == "stop":
+        background.add_task(_cancel_worker, updated)
     return updated
 
 

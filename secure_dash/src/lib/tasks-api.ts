@@ -15,7 +15,7 @@ import type {
 } from "@/lib/rbac-types";
 
 export type TaskAction =
-  "assign" | "start" | "block" | "unblock" | "complete" | "review" | "close" | "reassign";
+  "assign" | "start" | "stop" | "block" | "unblock" | "complete" | "review" | "close" | "reassign";
 
 export type TaskCreateBody = {
   target: string;
@@ -112,9 +112,25 @@ export type TaskChainStep = {
   threat_event_id?: string | null;
 };
 
+export type TaskProgressEvent = {
+  id?: string;
+  job_id?: string;
+  kind: "thinking" | "tool" | "process" | "status" | string;
+  message: string;
+  created_at?: string | null;
+  meta?: Record<string, unknown> | null;
+};
+
 export type TaskResults = {
   task: Task;
-  job: { id: string; status: string; error?: string | null } | null;
+  job: {
+    id: string;
+    status: string;
+    error?: string | null;
+    started_at?: string | null;
+    finished_at?: string | null;
+    estimated_duration_seconds?: number | null;
+  } | null;
   tools: TaskToolRun[];
   findings: Array<{
     id: string;
@@ -126,6 +142,7 @@ export type TaskResults = {
   }>;
   chain: { id: string; name?: string; steps: TaskChainStep[] } | null;
   patches: import("@/lib/security").Patch[];
+  progress?: TaskProgressEvent[];
 };
 
 export function getTaskResults(id: string): Promise<TaskResults> {

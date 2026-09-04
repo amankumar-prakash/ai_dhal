@@ -184,3 +184,104 @@ def test_start_creates_job_and_results_unlock_on_complete(client, monkeypatch):
     done = client.get(f"/api/v1/tasks/{task_id}", headers=headers)
     assert done.status_code == 200
     assert done.json()["status"] == "completed"
+
+
+def _start_red_task(client, monkeypatch, headers):
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={
+            "target": "http://juice.lab:25429",
+            "description": "recon",
+            "patch_scope": "none",
+            "task_type": "red",
+        },
+    )
+    assert created.status_code == 201, created.text
+    task_id = created.json()["id"]
+    with patch("app.services.dispatch.dispatch_job", new_callable=AsyncMock) as disp:
+
+        async def fake_dispatch(job, settings, task=None):
+            return {**job, "status": "dispatched"}
+
+        disp.side_effect = fake_dispatch
+        started = client.patch(
+            f"/api/v1/tasks/{task_id}",
+            headers=headers,
+            json={"action": "start"},
+        )
+    assert started.status_code == 200, started.text
+    return started.json()
+
+
+def test_progress_appends_and_lists_on_results(client, monkeypatch):
+    mgr = uuid4()
+    _auth(monkeypatch, mgr, "security_manager")
+    headers = {"Authorization": "Bearer x"}
+    task = _start_red_task(client, monkeypatch, headers)
+    job_id = task["linked_job_id"]
+    red = {"X-Service-Token": "change-me-red"}
+
+    posted = client.post(
+        f"/api/v1/jobs/{job_id}/progress",
+        headers=red,
+        json={
+            "kind": "thinking",
+            "message": "planning nmap",
+            "meta": {"estimated_duration_seconds": 30},
+        },
+    )
+    assert posted.status_code == 201, posted.text
+
+    running = client.patch(
+        f"/api/v1/jobs/{job_id}",
+        headers=red,
+        json={"status": "running"},
+    )
+    assert running.status_code == 200
+    assert running.json()["started_at"]
+
+    results = client.get(f"/api/v1/tasks/{task['id']}/results", headers=headers)
+    assert results.status_code == 200
+    payload = results.json()
+    assert payload["progress"][0]["kind"] == "thinking"
+    assert payload["progress"][0]["message"] == "planning nmap"
+    assert payload["job"]["estimated_duration_seconds"] == 30
+    assert payload["job"]["started_at"]
+
+
+def test_stop_blocks_task_and_cancels_job(client, monkeypatch):
+    mgr = uuid4()
+    _auth(monkeypatch, mgr, "security_manager")
+    headers = {"Authorization": "Bearer x"}
+    task = _start_red_task(client, monkeypatch, headers)
+    job_id = task["linked_job_id"]
+
+    with patch("app.services.dispatch.cancel_worker_job", new_callable=AsyncMock) as cancel:
+        stopped = client.patch(
+            f"/api/v1/tasks/{task['id']}",
+            headers=headers,
+            json={"action": "stop"},
+        )
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["status"] == "blocked"
+    cancel.assert_called()
+
+    job = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+    assert job.status_code == 200
+    assert job.json()["status"] == "cancelled"
+
+    red = {"X-Service-Token": "change-me-red"}
+    refused = client.post(
+        f"/api/v1/jobs/{job_id}/progress",
+        headers=red,
+        json={"kind": "status", "message": "still going"},
+    )
+    assert refused.status_code == 409
+
+    again = client.patch(
+        f"/api/v1/tasks/{task['id']}",
+        headers=headers,
+        json={"action": "stop"},
+    )
+    assert again.status_code == 400
