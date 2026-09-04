@@ -169,6 +169,8 @@ def test_start_creates_job_and_results_unlock_on_complete(client, monkeypatch):
     payload = results.json()
     assert len(payload["tools"]) == 1
     assert payload["tools"][0]["tool_name"] == "nmap_scan"
+    assert payload["tools"][0]["started_at"]
+    assert payload["tools"][0]["finished_at"]
     assert len(payload["findings"]) == 1
     assert len(payload["patches"]) == 1
     assert payload["chain"]

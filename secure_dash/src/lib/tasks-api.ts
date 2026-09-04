@@ -96,6 +96,7 @@ export type TaskToolRun = {
   raw_output: Record<string, unknown>;
   started_at?: string | null;
   finished_at?: string | null;
+  created_at?: string | null;
 };
 
 export type TaskChainStep = {
@@ -110,6 +111,7 @@ export type TaskChainStep = {
   evidence?: string | null;
   finding_id?: string | null;
   threat_event_id?: string | null;
+  created_at?: string | null;
 };
 
 export type TaskProgressEvent = {
@@ -139,6 +141,7 @@ export type TaskResults = {
     source_tool?: string | null;
     evidence?: unknown;
     remediation?: string | null;
+    created_at?: string | null;
   }>;
   chain: { id: string; name?: string; steps: TaskChainStep[] } | null;
   patches: import("@/lib/security").Patch[];
