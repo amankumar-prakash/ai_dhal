@@ -264,7 +264,13 @@ def patch_patch(patch_id: UUID, body: PatchPatch) -> dict[str, Any]:
 
 def create_tool_run(body: ToolRunCreate) -> dict[str, Any]:
     get_job(body.job_id)
-    return _store().create("tool_runs", {"id": uuid4(), **body.model_dump()})
+    data = body.model_dump()
+    now = datetime.now(timezone.utc)
+    if data.get("started_at") is None:
+        data["started_at"] = now
+    if data.get("finished_at") is None and data.get("exit_code") is not None:
+        data["finished_at"] = now
+    return _store().create("tool_runs", {"id": uuid4(), **data})
 
 
 def append_job_progress(job_id: UUID, kind: str, message: str, meta: dict[str, Any] | None = None) -> dict[str, Any]:

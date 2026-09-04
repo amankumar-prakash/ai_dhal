@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Crosshair, Download, KeyRound, LogIn, Search, Terminal, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, Crosshair, Download, KeyRound, LogIn, Search, Terminal, Wrench } from "lucide-react";
 import {
+  duration,
   relTime,
   severityColor,
   severityLabel,
@@ -10,10 +11,18 @@ import {
   type Severity,
   type Stage,
 } from "@/lib/security";
+import {
+  asSeverity,
+  categoryOf,
+  detailsForCategory,
+  stepsFromResults,
+  type ChainCategory,
+  type ChainDetailItem,
+} from "@/lib/task-attack-chain";
 import type { TaskChainStep, TaskResults } from "@/lib/tasks-api";
-import { EmptyState, Eyebrow, Panel, SeverityChip } from "@/components/sd/primitives";
+import { EmptyState, SeverityChip } from "@/components/sd/primitives";
 
-export type ChainCategory = "tools" | "findings" | Stage;
+export type { ChainCategory };
 
 const EXTRA: { id: ChainCategory; label: string; icon: typeof Wrench }[] = [
   { id: "tools", label: "Tools", icon: Wrench },
@@ -28,44 +37,110 @@ const STAGE_ICON: Record<Stage, typeof Crosshair> = {
   exfiltration: Download,
 };
 
-function asSeverity(value: string | undefined): Severity {
-  if (value === "critical" || value === "high" || value === "medium" || value === "low" || value === "info") {
-    return value;
+function runTimeLabel(item: ChainDetailItem): string {
+  const start = item.startedAt || item.createdAt;
+  if (!start && !item.finishedAt) return "Time not recorded";
+  const parts: string[] = [];
+  if (start) parts.push(relTime(start));
+  if (item.startedAt && item.finishedAt) parts.push(`ran ${duration(item.startedAt, item.finishedAt)}`);
+  else if (item.finishedAt) parts.push(`finished ${relTime(item.finishedAt)}`);
+  return parts.join(" · ");
+}
+
+function DetailRows({
+  category,
+  items,
+}: {
+  category: ChainCategory;
+  items: ChainDetailItem[];
+}) {
+  if (items.length === 0) {
+    return (
+      <p className="micro px-4 pb-4" style={{ color: "var(--text-muted)" }}>
+        No activity recorded at this stage.
+      </p>
+    );
   }
-  return "info";
-}
 
-function categoryOf(step: TaskChainStep): ChainCategory {
-  const cat = (step.category || "").toLowerCase();
-  if (cat === "tools" || cat === "findings") return cat;
-  if (STAGES.includes(step.stage as Stage)) return step.stage as Stage;
-  return "recon";
-}
-
-function stepsFromResults(results: TaskResults): TaskChainStep[] {
-  if (results.chain?.steps?.length) return results.chain.steps;
-  const fromTools: TaskChainStep[] = (results.tools ?? []).map((t, i) => ({
-    id: t.id,
-    stage: "recon",
-    sequence: i + 1,
-    title: t.tool_name,
-    severity: "info",
-    category: "tools",
-    source_tool: t.tool_name,
-    evidence: t.command_summary,
-  }));
-  const fromFindings: TaskChainStep[] = (results.findings ?? []).map((f, i) => ({
-    id: f.id,
-    stage: "recon",
-    sequence: fromTools.length + i + 1,
-    title: f.title,
-    severity: f.severity,
-    category: "findings",
-    source_tool: f.source_tool,
-    finding_id: f.id,
-    evidence: typeof f.evidence === "string" ? f.evidence : undefined,
-  }));
-  return [...fromTools, ...fromFindings];
+  return (
+    <ul className="border-t" style={{ borderColor: "var(--border-hairline)" }}>
+      {items.map((item) => {
+        const sev = asSeverity(item.severity);
+        const failed = item.exitCode != null && item.exitCode !== 0;
+        const ran = runTimeLabel(item);
+        const meta =
+          category === "tools"
+            ? [item.command || "No command summary", ran].filter(Boolean).join(" · ")
+            : [item.sourceTool ? `source ${item.sourceTool}` : "", ran !== "Time not recorded" ? ran : ""]
+                .filter(Boolean)
+                .join(" · ") || "—";
+        return (
+          <li
+            key={item.id}
+            className="border-b px-4 py-3 last:border-b-0"
+            style={{ borderColor: "var(--border-hairline)" }}
+          >
+            <div className="flex flex-wrap items-start gap-2">
+              {category !== "tools" && <SeverityChip severity={sev} />}
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">{item.title}</div>
+                <div className="mono micro mt-1" style={{ color: "var(--text-muted)" }}>
+                  {meta}
+                </div>
+              </div>
+              {category === "tools" ? (
+                <span
+                  className="mono micro"
+                  style={{ color: failed ? "var(--accent-ember)" : "var(--text-secondary)" }}
+                >
+                  {item.exitCode == null ? "recorded" : `exit ${item.exitCode}`}
+                </span>
+              ) : (
+                <span className="micro" style={{ color: severityColor(sev) }}>
+                  {severityLabel[sev]}
+                </span>
+              )}
+            </div>
+            {item.evidence && category !== "tools" && (
+              <pre
+                className="mono mt-2 max-h-[160px] overflow-auto rounded-sm p-2 text-[12px] leading-5 whitespace-pre-wrap"
+                style={{
+                  background: "var(--bg-base)",
+                  border: "1px solid var(--border-hairline)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {item.evidence.slice(0, 800)}
+              </pre>
+            )}
+            {item.remediation && (
+              <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                {item.remediation}
+              </p>
+            )}
+            {category === "tools" && (
+              <div className="mt-2">
+                {item.findings.length === 0 ? (
+                  <span className="micro" style={{ color: "var(--text-muted)" }}>
+                    No findings from this tool
+                  </span>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {item.findings.map((f) => (
+                      <li key={f.id} className="flex items-center gap-2">
+                        <SeverityChip severity={asSeverity(f.severity)} variant="outline" />
+                        <span className="text-sm">{f.title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export function TaskAttackChain({
@@ -76,7 +151,7 @@ export function TaskAttackChain({
   steps?: TaskChainStep[];
 }) {
   const steps = stepsProp ?? (results ? stepsFromResults(results) : []);
-  const [selected, setSelected] = useState<ChainCategory | null>("tools");
+  const [expanded, setExpanded] = useState<ChainCategory | null>(null);
 
   const categories: { id: ChainCategory; label: string; icon: typeof Wrench }[] = [
     ...EXTRA,
@@ -104,8 +179,6 @@ export function TaskAttackChain({
     );
   };
 
-  const panelSteps = selected ? (byCat.get(selected) ?? []) : [];
-
   if (!steps.length) {
     return (
       <EmptyState
@@ -116,26 +189,36 @@ export function TaskAttackChain({
   }
 
   return (
-    <div>
-      <div className="flex flex-col items-stretch gap-3 xl:flex-row xl:items-center">
-        {categories.map((cat, i) => {
-          const list = byCat.get(cat.id) ?? [];
-          const sev = topSeverity(cat.id);
-          const critical = sev === "critical";
-          const isSelected = selected === cat.id;
-          const Icon = cat.icon;
-          const weight = Math.min(4, 1 + Math.floor(list.length / 2));
-          return (
-            <div key={cat.id} className="flex flex-1 flex-col items-stretch xl:flex-row xl:items-center">
+    <div className="flex flex-col items-stretch gap-3">
+      {categories.map((cat, i) => {
+        const list = byCat.get(cat.id) ?? [];
+        const sev = topSeverity(cat.id);
+        const critical = sev === "critical";
+        const isExpanded = expanded === cat.id;
+        const Icon = cat.icon;
+        const weight = Math.min(4, 1 + Math.floor(list.length / 2));
+        const details = isExpanded ? detailsForCategory(cat.id, list, results) : [];
+        const canExpand = list.length > 0;
+        return (
+          <div key={cat.id} className="flex flex-col items-stretch">
+            <div
+              className="w-full rounded-md"
+              style={{
+                background: isExpanded ? "var(--surface-raised)" : "var(--surface)",
+                border: `1px solid ${isExpanded ? "var(--accent-ember)" : "var(--border-hairline)"}`,
+                boxShadow: critical && !isExpanded ? "var(--glow-ember)" : undefined,
+              }}
+            >
               <button
-                onClick={() => setSelected(isSelected ? null : cat.id)}
-                className="w-full rounded-md p-4 text-left transition-colors duration-150 ease-out"
-                style={{
-                  background: isSelected ? "var(--surface-raised)" : "var(--surface)",
-                  border: `1px solid ${isSelected ? "var(--accent-ember)" : "var(--border-hairline)"}`,
-                  boxShadow: critical && !isSelected ? "var(--glow-ember)" : undefined,
+                type="button"
+                onClick={() => {
+                  if (!canExpand) return;
+                  setExpanded(isExpanded ? null : cat.id);
                 }}
-                aria-pressed={isSelected}
+                className="w-full rounded-md p-4 text-left transition-colors duration-150 ease-out"
+                aria-expanded={isExpanded}
+                aria-controls={`attack-chain-${cat.id}`}
+                disabled={!canExpand}
               >
                 <div className="flex items-center gap-2">
                   <Icon size={20} strokeWidth={1.5} style={{ color: "var(--text-secondary)" }} />
@@ -150,9 +233,16 @@ export function TaskAttackChain({
                     {list.length}
                   </span>
                 </div>
-                <div className="mt-2">
+                <div className="mt-2 flex items-center gap-2">
                   {sev ? (
-                    <SeverityChip severity={sev} variant="outline" />
+                    <>
+                      <SeverityChip severity={sev} variant="outline" />
+                      {isExpanded ? (
+                        <ChevronDown size={14} strokeWidth={1.5} style={{ color: "var(--text-muted)" }} />
+                      ) : (
+                        <ChevronRight size={14} strokeWidth={1.5} style={{ color: "var(--text-muted)" }} />
+                      )}
+                    </>
                   ) : (
                     <span className="micro" style={{ color: "var(--text-muted)" }}>
                       No activity
@@ -160,69 +250,23 @@ export function TaskAttackChain({
                   )}
                 </div>
               </button>
-              {i < categories.length - 1 && (
-                <div className="flex shrink-0 items-center justify-center py-1 xl:px-1 xl:py-0" aria-hidden>
-                  <svg width="28" height="28" viewBox="0 0 28 28" className="hidden xl:block">
-                    <line x1="2" y1="14" x2="20" y2="14" stroke="var(--border-hairline)" strokeWidth={weight} />
-                    <path d="M20 9 L26 14 L20 19 Z" fill="var(--border-hairline)" />
-                  </svg>
-                  <svg width="28" height="28" viewBox="0 0 28 28" className="xl:hidden">
-                    <line x1="14" y1="2" x2="14" y2="20" stroke="var(--border-hairline)" strokeWidth={weight} />
-                    <path d="M9 20 L14 26 L19 20 Z" fill="var(--border-hairline)" />
-                  </svg>
+              {isExpanded && (
+                <div id={`attack-chain-${cat.id}`}>
+                  <DetailRows category={cat.id} items={details} />
                 </div>
               )}
             </div>
-          );
-        })}
-      </div>
-
-      {selected && (
-        <Panel className="mt-6">
-          <div
-            className="flex items-center justify-between border-b p-4"
-            style={{ borderColor: "var(--border-hairline)" }}
-          >
-            <Eyebrow>
-              {categories.find((c) => c.id === selected)?.label} — linked records
-            </Eyebrow>
-            <button className="micro" style={{ color: "var(--text-muted)" }} onClick={() => setSelected(null)}>
-              Close
-            </button>
+            {i < categories.length - 1 && (
+              <div className="flex shrink-0 items-center justify-center py-1" aria-hidden>
+                <svg width="28" height="28" viewBox="0 0 28 28">
+                  <line x1="14" y1="2" x2="14" y2="20" stroke="var(--border-hairline)" strokeWidth={weight} />
+                  <path d="M9 20 L14 26 L19 20 Z" fill="var(--border-hairline)" />
+                </svg>
+              </div>
+            )}
           </div>
-          {panelSteps.length === 0 ? (
-            <EmptyState
-              icon={<Crosshair size={20} strokeWidth={1.5} />}
-              label="No activity recorded at this stage."
-            />
-          ) : (
-            <ul>
-              {panelSteps.map((step) => (
-                <li
-                  key={step.id}
-                  className="flex flex-wrap items-start gap-3 border-b px-4 py-3 last:border-b-0"
-                  style={{ borderColor: "var(--border-hairline)" }}
-                >
-                  <span className="mono micro" style={{ color: "var(--text-muted)" }}>
-                    #{step.sequence}
-                  </span>
-                  <SeverityChip severity={asSeverity(step.severity)} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm">{step.title}</div>
-                    <div className="mono micro mt-1" style={{ color: "var(--text-muted)" }}>
-                      {step.source_tool ? `${step.source_tool} · ` : ""}
-                      {step.evidence ? String(step.evidence).slice(0, 160) : relTime(undefined)}
-                    </div>
-                  </div>
-                  <span className="micro" style={{ color: severityColor(asSeverity(step.severity)) }}>
-                    {severityLabel[asSeverity(step.severity)]}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-      )}
+        );
+      })}
     </div>
   );
 }
