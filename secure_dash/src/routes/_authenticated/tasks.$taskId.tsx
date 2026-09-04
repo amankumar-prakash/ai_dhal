@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, GitBranch, Play, ScrollText, ShieldAlert, ShieldCheck, Square, Swords } from "lucide-react";
 import { relTime } from "@/lib/security";
 import { resultsUnlocked } from "@/lib/tasks";
-import { applyTaskPatch, taskQuery, taskResultsQuery, transitionTask } from "@/lib/tasks-api";
+import { taskQuery, taskResultsQuery, transitionTask } from "@/lib/tasks-api";
 import { StatusPill } from "@/components/tasks/TaskBoard";
 import { TaskAttackChain } from "@/components/tasks/TaskAttackChain";
 import { TaskLogs } from "@/components/tasks/TaskLogs";
@@ -54,14 +54,6 @@ function TaskDetailPage() {
       qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
       qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
-    },
-  });
-
-  const applyMut = useMutation({
-    mutationFn: (patchId: string) => applyTaskPatch(patchId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
-      qc.invalidateQueries({ queryKey: ["patches"] });
     },
   });
 
@@ -314,7 +306,9 @@ function TaskDetailPage() {
       {tab === "patches" && unlocked && (
         <TaskPatches
           patches={results?.patches ?? []}
-          onApply={(id) => applyMut.mutate(id)}
+          findings={results?.findings ?? []}
+          taskId={task.id}
+          target={task.target}
         />
       )}
     </div>
