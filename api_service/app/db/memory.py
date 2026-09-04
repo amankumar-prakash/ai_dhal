@@ -17,6 +17,7 @@ _store: dict[str, dict[UUID, dict[str, Any]]] = {
     "attack_chains": {},
     "attack_chain_steps": {},
     "tool_runs": {},
+    "job_progress_events": {},
     "roles": {},
     "profiles": {},
     "tasks": {},

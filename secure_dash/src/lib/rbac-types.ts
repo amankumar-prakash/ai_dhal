@@ -12,6 +12,7 @@ export type TaskAuditAction =
   | "assigned"
   | "started"
   | "started_on_behalf"
+  | "stopped"
   | "blocked"
   | "unblocked"
   | "completed"

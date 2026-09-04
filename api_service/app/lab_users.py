@@ -10,10 +10,19 @@ from app.db.store import get_store
 from app.services import identity
 
 
+def _usable_email(email: str) -> bool:
+    value = (email or "").strip()
+    if not value or "@" not in value:
+        return False
+    if "REDACTED" in value.upper() or value.startswith("["):
+        return False
+    return True
+
+
 def lab_accounts(settings: Settings | None = None) -> list[dict[str, str]]:
     settings = settings or get_settings()
     rows: list[dict[str, str]] = []
-    if settings.test_manager_username.strip() and settings.test_manager_password:
+    if _usable_email(settings.test_manager_username) and settings.test_manager_password:
         rows.append(
             {
                 "email": settings.test_manager_username.strip().lower(),
@@ -22,7 +31,7 @@ def lab_accounts(settings: Settings | None = None) -> list[dict[str, str]]:
                 "display_name": "Lab Manager",
             }
         )
-    if settings.test_username.strip() and settings.test_password:
+    if _usable_email(settings.test_username) and settings.test_password:
         rows.append(
             {
                 "email": settings.test_username.strip().lower(),

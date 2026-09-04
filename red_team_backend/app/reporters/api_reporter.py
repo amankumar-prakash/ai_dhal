@@ -36,6 +36,23 @@ class ApiReporter:
     async def patch_job(self, job_id: str, **fields: Any) -> Any:
         return await self._request("PATCH", f"jobs/{job_id}", json=fields)
 
+    async def get_job(self, job_id: str) -> Any:
+        return await self._request("GET", f"jobs/{job_id}")
+
+    async def post_progress(
+        self,
+        job_id: str,
+        *,
+        kind: str,
+        message: str,
+        meta: dict[str, Any] | None = None,
+    ) -> Any:
+        return await self._request(
+            "POST",
+            f"jobs/{job_id}/progress",
+            json={"kind": kind, "message": message, "meta": meta or {}},
+        )
+
     async def post_finding(self, payload: dict[str, Any]) -> Any:
         return await self._request("POST", "findings", json=payload)
 

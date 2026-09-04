@@ -91,3 +91,23 @@ async def dispatch_job(
     except Exception as exc:  # noqa: BLE001
         log.warning("dispatch failed: %s", exc)
     return job
+
+
+async def cancel_worker_job(task: dict[str, Any], settings: Settings) -> None:
+    """Best-effort notify the worker to kill the running asyncio job and HexStrike PIDs."""
+    linked = task.get("linked_job_id")
+    if not linked:
+        return
+    job_id = linked if isinstance(linked, UUID) else UUID(str(linked))
+    try:
+        job = crud.get_job(job_id)
+    except Exception:  # noqa: BLE001
+        return
+    team = job.get("team") or "red"
+    base = settings.red_worker_url if team == "red" else settings.blue_worker_url
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
+            resp = await client.post(f"{base.rstrip('/')}/internal/jobs/{job_id}/cancel")
+            resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("worker cancel failed: %s", exc)
