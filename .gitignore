@@ -16,7 +16,9 @@ build/
 coverage/
 .idea/
 .vscode/
-
+graphify-out/
+.agents/
+.agent/
 
 ## secure_dash
 # Logs

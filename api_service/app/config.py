@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     red_worker_url: str = "http://localhost:8001"
     blue_worker_url: str = "http://localhost:8002"
 
+    # Orchestrator / LLM settings
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o"
+    orchestrator_stub: bool = False   # set True (or LLM_STUB=1) for offline/CI mode
+
     def elevated_key(self) -> str:
         return (self.supabase_secret_key or self.supabase_service_role_key or "").strip()
 

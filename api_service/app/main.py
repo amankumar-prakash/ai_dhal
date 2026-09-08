@@ -15,6 +15,7 @@ from app.routers import (
     jobs,
     me,
     misc,
+    orchestrator,
     patches,
     scans,
     tasks,
@@ -37,6 +38,7 @@ app.include_router(me.router, prefix=API)
 app.include_router(tasks.router, prefix=API)
 app.include_router(admin_users.router, prefix=API)
 app.include_router(cai_chat.router, prefix=API)
+app.include_router(orchestrator.router, prefix=API)
 
 _JOB_HITS: dict[str, deque[float]] = defaultdict(deque)
 _JOB_LIMIT = 30
