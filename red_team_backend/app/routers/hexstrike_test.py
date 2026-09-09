@@ -9,6 +9,7 @@ from langchain.agents import create_agent
 from langchain_mcp_adapters.tools import load_mcp_tools
 from pydantic import BaseModel, Field
 
+from app.adapters.llm_model_factory import build_agent_model
 from app.adapters.mcp_client import create_mcp_client
 from app.pipelines.task_discovery import agent_system_prompt, select_recon_tools
 from app.settings import get_settings
@@ -63,7 +64,7 @@ async def test_hexstrike(body: TestHexstrikeBody) -> dict[str, Any]:
         }
 
     _ensure_openai_env()
-    model = f"openai:{settings.llm_model}"
+    model = build_agent_model(settings)
     client = create_mcp_client(settings)
 
     try:
