@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from app.deps import Principal, deny_user_mutate, require_ops_reader, require_jwt_or_service
+from app.deps import Principal, require_ops_reader, require_jwt_or_service
 from app.schemas.models import Finding, FindingCreate, FindingPatch
 from app.services import crud
 from app.services.scope import filter_ops_rows
@@ -24,8 +24,6 @@ def create_finding(body: FindingCreate, _: Principal = Depends(require_jwt_or_se
 def patch_finding(
     finding_id: UUID,
     body: FindingPatch,
-    principal: Principal = Depends(require_jwt_or_service),
+    _: Principal = Depends(require_jwt_or_service),
 ):
-    if principal.user_id:
-        deny_user_mutate(principal)
     return crud.patch_finding(finding_id, body)

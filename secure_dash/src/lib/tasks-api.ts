@@ -15,7 +15,7 @@ import type {
 } from "@/lib/rbac-types";
 
 export type TaskAction =
-  "assign" | "start" | "block" | "unblock" | "complete" | "review" | "close" | "reassign";
+  "assign" | "start" | "stop" | "block" | "unblock" | "complete" | "review" | "close" | "reassign";
 
 export type TaskCreateBody = {
   target: string;
@@ -86,6 +86,79 @@ export function linkJobToTask(id: string, linked_job_id: string): Promise<Task> 
   });
 }
 
+export type TaskToolRun = {
+  id: string;
+  job_id: string;
+  team: string;
+  tool_name: string;
+  command_summary: string | null;
+  exit_code: number | null;
+  raw_output: Record<string, unknown>;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string | null;
+};
+
+export type TaskChainStep = {
+  id: string;
+  chain_id?: string;
+  stage: string;
+  sequence: number;
+  title: string;
+  severity: string;
+  category?: string | null;
+  source_tool?: string | null;
+  evidence?: string | null;
+  finding_id?: string | null;
+  threat_event_id?: string | null;
+  created_at?: string | null;
+};
+
+export type TaskProgressEvent = {
+  id?: string;
+  job_id?: string;
+  kind: "thinking" | "tool" | "process" | "status" | string;
+  message: string;
+  created_at?: string | null;
+  meta?: Record<string, unknown> | null;
+};
+
+export type TaskResults = {
+  task: Task;
+  job: {
+    id: string;
+    status: string;
+    error?: string | null;
+    started_at?: string | null;
+    finished_at?: string | null;
+    estimated_duration_seconds?: number | null;
+  } | null;
+  tools: TaskToolRun[];
+  findings: Array<{
+    id: string;
+    title: string;
+    severity: string;
+    source_tool?: string | null;
+    evidence?: unknown;
+    remediation?: string | null;
+    created_at?: string | null;
+  }>;
+  chain: { id: string; name?: string; steps: TaskChainStep[] } | null;
+  patches: import("@/lib/security").Patch[];
+  progress?: TaskProgressEvent[];
+};
+
+export function getTaskResults(id: string): Promise<TaskResults> {
+  return apiFetch<TaskResults>(`/tasks/${id}/results`);
+}
+
+export function applyTaskPatch(patchId: string) {
+  return apiFetch(`/patches/${patchId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "applied" }),
+  });
+}
+
 export function listTaskNotes(id: string): Promise<TaskNote[]> {
   return apiFetch<TaskNote[]>(`/tasks/${id}/notes`);
 }
@@ -112,8 +185,8 @@ export function listTaskAudit(id: string): Promise<TaskAuditEvent[]> {
   return apiFetch<TaskAuditEvent[]>(`/tasks/${id}/audit`);
 }
 
-/** `security_analyst` rows from `/roles` — used for the Manager assignee picker. */
-export function listAnalystRoleRows(): Promise<{ user_id: string; role: string }[]> {
+/** Role rows from `/roles` — used for the assignee picker (any ops user). */
+export function listRoleRows(): Promise<{ user_id: string; role: string }[]> {
   return apiFetch<{ user_id: string; role: string }[]>("/roles");
 }
 
@@ -127,6 +200,13 @@ export function taskQuery(id: string) {
   return queryOptions({
     queryKey: ["tasks", "detail", id],
     queryFn: () => getTask(id),
+  });
+}
+
+export function taskResultsQuery(id: string) {
+  return queryOptions({
+    queryKey: ["tasks", "results", id],
+    queryFn: () => getTaskResults(id),
   });
 }
 
@@ -151,7 +231,7 @@ export function taskAuditQuery(id: string) {
   });
 }
 
-export const analystRolesQuery = queryOptions({
-  queryKey: ["roles", "security_analyst"],
-  queryFn: async () => (await listAnalystRoleRows()).filter((r) => r.role === "security_analyst"),
+export const assigneeRolesQuery = queryOptions({
+  queryKey: ["roles", "assignees"],
+  queryFn: () => listRoleRows(),
 });

@@ -1,72 +1,84 @@
 /**
- * Access Matrix from specs/002-rbac-user-journeys/contracts/access-matrix.json
+ * Access Matrix — capabilities are open to every authenticated role.
  */
 import type { AppRole } from "./rbac-types";
 
+const ALL_ROLES = ["user", "security_analyst", "security_manager", "admin"] as const;
+
 export const ACCESS_MATRIX = {
-  version: "1.1.0",
-  roles: ["user", "security_analyst", "security_manager", "admin"] as const,
+  version: "2.0.0",
+  roles: ALL_ROLES,
   capabilities: {
-    login: ["user", "security_analyst", "security_manager", "admin"],
-    view_ops_dashboard: ["user", "security_analyst", "security_manager"],
+    login: [...ALL_ROLES],
+    view_ops_dashboard: [...ALL_ROLES],
     view_threat_detection: {
-      user: "read_only_org",
-      security_analyst: "assigned_scope",
+      user: "all",
+      security_analyst: "all",
       security_manager: "all",
-      admin: "deny",
+      admin: "all",
     },
     view_scan_reports: {
-      user: "read_only_org",
-      security_analyst: "assigned_scope",
+      user: "all",
+      security_analyst: "all",
       security_manager: "all",
-      admin: "deny",
+      admin: "all",
     },
     view_tasks: {
-      user: "deny",
-      security_analyst: "own_only",
+      user: "all",
+      security_analyst: "all",
       security_manager: "all",
-      admin: "deny",
+      admin: "all",
     },
-    create_task: ["security_manager"],
-    edit_task_metadata: ["security_manager"],
-    assign_task: ["security_manager"],
+    create_task: [...ALL_ROLES],
+    edit_task_metadata: [...ALL_ROLES],
+    assign_task: [...ALL_ROLES],
     start_task: {
-      security_analyst: "if_assignee",
+      user: "any",
+      security_analyst: "any",
       security_manager: "any",
+      admin: "any",
     },
     complete_task: {
-      security_analyst: "if_assignee",
+      user: "any",
+      security_analyst: "any",
       security_manager: "any",
+      admin: "any",
     },
     block_task: {
-      security_analyst: "if_assignee",
+      user: "any",
+      security_analyst: "any",
       security_manager: "any",
+      admin: "any",
     },
     review_or_close_task: {
-      security_analyst: "deny",
+      user: "any",
+      security_analyst: "any",
       security_manager: "any",
+      admin: "any",
     },
     task_notes_and_links: {
-      security_analyst: "own_tasks",
+      user: "any_task",
+      security_analyst: "any_task",
       security_manager: "any_task",
+      admin: "any_task",
     },
     red_team_tools: {
-      security_analyst: "if_any_in_progress_red",
+      user: "always",
+      security_analyst: "always",
       security_manager: "always",
-      user: "deny",
-      admin: "deny",
+      admin: "always",
     },
     blue_team_tools: {
-      security_analyst: "if_any_in_progress_blue",
+      user: "always",
+      security_analyst: "always",
       security_manager: "always",
-      user: "deny",
-      admin: "deny",
+      admin: "always",
     },
-    admin_panel: ["admin"],
-    create_user_assign_role: ["admin"],
-    assign_admin_role: ["admin"],
-    demote_or_disable_admin: ["admin"],
-    issue_one_time_credentials: ["admin"],
+    admin_panel: [...ALL_ROLES],
+    create_user_assign_role: [...ALL_ROLES],
+    assign_admin_role: [...ALL_ROLES],
+    demote_or_disable_admin: [...ALL_ROLES],
+    issue_one_time_credentials: [...ALL_ROLES],
   },
   bootstrap: {
     first_admin: "out_of_band_only",
@@ -104,8 +116,6 @@ export function capabilityFor(
   const cell = map[role];
   if (cell === undefined) return false;
   if (cell === "deny") return false;
-  // Map-style cells are always predicate strings (e.g. "any", "if_assignee") —
-  // never role lists — so this narrows the CapList branch out safely.
   return cell as string;
 }
 

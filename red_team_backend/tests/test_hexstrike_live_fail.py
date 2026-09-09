@@ -17,7 +17,7 @@ async def test_run_recon_raises_when_live_and_unreachable():
         llm_stub="1",
     )
     with pytest.raises(RuntimeError):
-        await hexstrike_client.run_recon("lab.local", "10.0.0.1", settings=settings)
+        await hexstrike_client.run_recon("lab.local", "[REDACTED_IPV4_ADDRESS_1]", settings=settings)
 
 
 @pytest.mark.asyncio
@@ -27,6 +27,7 @@ async def test_surface_recon_marks_job_failed_when_live_hexstrike_unreachable(mo
         hexstrike_base_url=UNREACHABLE_BASE_URL,
         llm_stub="1",
         red_service_token="tok",
+        target_allowlist="",
     )
     calls = []
 
@@ -50,7 +51,7 @@ async def test_surface_recon_marks_job_failed_when_live_hexstrike_unreachable(mo
             {
                 "job_id": "j1",
                 "profile": "surface-recon",
-                "assets": [{"id": "a1", "hostname": "lab.local", "ip_address": "10.0.0.1"}],
+                "assets": [{"id": "a1", "hostname": "lab.local", "ip_address": "[REDACTED_IPV4_ADDRESS_1]"}],
             },
             settings,
         )

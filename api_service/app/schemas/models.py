@@ -118,6 +118,12 @@ class JobPatch(BaseModel):
     finished_at: datetime | None = None
 
 
+class JobProgressCreate(BaseModel):
+    kind: Literal["thinking", "tool", "process", "status"]
+    message: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
 class Job(BaseModel):
     id: UUID
     team: TeamSide
@@ -169,6 +175,9 @@ class AttackChainStepCreate(BaseModel):
     severity: str | None = "medium"
     threat_event_id: UUID | None = None
     finding_id: UUID | None = None
+    category: str | None = None
+    source_tool: str | None = None
+    evidence: str | None = None
 
 
 class ToolRunCreate(BaseModel):
@@ -255,6 +264,7 @@ class TaskPatch(BaseModel):
     action: Literal[
         "assign",
         "start",
+        "stop",
         "block",
         "unblock",
         "complete",

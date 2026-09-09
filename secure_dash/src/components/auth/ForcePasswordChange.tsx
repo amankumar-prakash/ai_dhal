@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ErrorBanner } from "@/components/sd/primitives";
+import { clearLabSession } from "@/lib/session";
 
 const MIN_LENGTH = 12;
 
@@ -28,6 +29,7 @@ export function ForcePasswordChange() {
     await qc.cancelQueries();
     qc.clear();
     await supabase.auth.signOut();
+    clearLabSession();
     navigate({ to: "/auth", replace: true });
   }
 

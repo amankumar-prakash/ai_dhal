@@ -388,8 +388,6 @@ function ScanRow({
 
 function Scans() {
   useRealtime(["scans", "findings"]);
-  const { me } = Route.useRouteContext();
-  const canRunScan = me.role !== "user";
   const scans = useQuery(scansQuery);
   const findings = useQuery(findingsQuery);
   const assets = useQuery(assetsQuery);
@@ -409,19 +407,17 @@ function Scans() {
         title="Scan Report"
         subtitle="Validation runs orchestrated through the CAI defensive-validation agent."
         right={
-          canRunScan ? (
-            <button
-              onClick={() => setShowPanel((v) => !v)}
-              className="rounded-sm px-3 py-2 text-sm font-medium"
-              style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
-            >
-              Run scan
-            </button>
-          ) : undefined
+          <button
+            onClick={() => setShowPanel((v) => !v)}
+            className="rounded-sm px-3 py-2 text-sm font-medium"
+            style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
+          >
+            Run scan
+          </button>
         }
       />
 
-      {canRunScan && showPanel && <RunScanPanel onClose={() => setShowPanel(false)} />}
+      {showPanel && <RunScanPanel onClose={() => setShowPanel(false)} />}
 
       {scans.isError ? (
         <ErrorBanner message="Scan runs unavailable." onRetry={() => scans.refetch()} />
@@ -443,21 +439,15 @@ function Scans() {
           ) : (scans.data ?? []).length === 0 ? (
             <EmptyState
               icon={<ScanLine size={20} strokeWidth={1.5} />}
-              label={
-                canRunScan
-                  ? "No findings yet — run your first scan."
-                  : "No scans have been run yet."
-              }
+              label="No findings yet — run your first scan."
               action={
-                canRunScan ? (
-                  <button
-                    onClick={() => setShowPanel(true)}
-                    className="rounded-sm px-3 py-2 text-sm font-medium"
-                    style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
-                  >
-                    Run scan
-                  </button>
-                ) : undefined
+                <button
+                  onClick={() => setShowPanel(true)}
+                  className="rounded-sm px-3 py-2 text-sm font-medium"
+                  style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
+                >
+                  Run scan
+                </button>
               }
             />
           ) : (

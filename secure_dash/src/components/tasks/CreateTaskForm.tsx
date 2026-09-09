@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { ListPlus } from "lucide-react";
-import { analystRolesQuery, createTask } from "@/lib/tasks-api";
+import { useQuery } from "@tanstack/react-query";
+import { useTaskRunner } from "@/hooks/use-task-runner";
+import { assigneeRolesQuery } from "@/lib/tasks-api";
 import { assetsQuery } from "@/lib/security";
 import type { TaskType } from "@/lib/rbac-types";
 import { ErrorBanner, Eyebrow, Panel } from "@/components/sd/primitives";
@@ -12,54 +13,55 @@ const inputStyle = {
   color: "var(--text-primary)",
 } as const;
 
-/** Security Manager only — creation is gated at the route level. */
 export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
+  const { create } = useTaskRunner();
+  const assets = useQuery(assetsQuery);
+  const roles = useQuery(assigneeRolesQuery);
   const [target, setTarget] = useState("");
   const [description, setDescription] = useState("");
   const [patchScope, setPatchScope] = useState("");
   const [taskType, setTaskType] = useState<TaskType>("red");
   const [assetId, setAssetId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-  const assets = useQuery(assetsQuery);
-  const analysts = useQuery(analystRolesQuery);
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      createTask({
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!target.trim()) {
+      setError("Target is required.");
+      return;
+    }
+    setPending(true);
+    try {
+      await create({
         target,
         description,
         patch_scope: patchScope,
-        task_type: taskType,
+        task_type: taskType === "both" ? "red" : taskType,
         asset_id: assetId || null,
         assignee_id: assigneeId || null,
-      }),
-    onSuccess: () => {
+      });
       setTarget("");
       setDescription("");
       setPatchScope("");
       setAssetId("");
       setAssigneeId("");
       onCreated?.();
-    },
-  });
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    mutation.reset();
-    mutation.mutate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create task");
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
     <Panel className="p-4">
       <Eyebrow>New task</Eyebrow>
-      {mutation.isError && (
+      {error && (
         <div className="mt-3">
-          <ErrorBanner
-            message={
-              mutation.error instanceof Error ? mutation.error.message : "Could not create task"
-            }
-          />
+          <ErrorBanner message={error} />
         </div>
       )}
       <form onSubmit={submit} className="mt-3 flex flex-col gap-3">
@@ -69,6 +71,7 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             required
             value={target}
             onChange={(e) => setTarget(e.target.value)}
+            placeholder="http://shop.internal.lab:3000"
             className="mono rounded-sm px-3 py-2 text-sm"
             style={inputStyle}
           />
@@ -79,6 +82,7 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
+            placeholder="Phases: nmap, httpx-toolkit, gobuster, katana, nuclei"
             className="rounded-sm px-3 py-2 text-sm"
             style={inputStyle}
           />
@@ -88,6 +92,7 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
           <input
             value={patchScope}
             onChange={(e) => setPatchScope(e.target.value)}
+            placeholder="edge + WAF"
             className="rounded-sm px-3 py-2 text-sm"
             style={inputStyle}
           />
@@ -106,14 +111,14 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="eyebrow">Asset (optional)</span>
+            <span className="eyebrow">Asset</span>
             <select
               value={assetId}
               onChange={(e) => setAssetId(e.target.value)}
               className="rounded-sm px-3 py-2 text-sm"
               style={inputStyle}
             >
-              <option value="">Unassigned</option>
+              <option value="">Create from target</option>
               {(assets.data ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -123,33 +128,29 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
           </label>
         </div>
         <label className="flex flex-col gap-1">
-          <span className="eyebrow">Assignee (optional)</span>
+          <span className="eyebrow">Assignee</span>
           <select
             value={assigneeId}
             onChange={(e) => setAssigneeId(e.target.value)}
-            className="mono rounded-sm px-3 py-2 text-sm"
+            className="rounded-sm px-3 py-2 text-sm"
             style={inputStyle}
           >
-            <option value="">Unassigned — Draft</option>
-            {(analysts.data ?? []).map((r) => (
+            <option value="">Unassigned</option>
+            {(roles.data ?? []).map((r) => (
               <option key={r.user_id} value={r.user_id}>
-                {r.user_id}
+                {r.role} · {r.user_id.slice(0, 8)}
               </option>
             ))}
           </select>
-          <span className="micro" style={{ color: "var(--text-muted)" }}>
-            Listed by Analyst user ID. Assign later from the task detail if you need to pick by
-            name.
-          </span>
         </label>
         <button
           type="submit"
-          disabled={mutation.isPending}
+          disabled={pending}
           className="mt-1 inline-flex items-center justify-center gap-2 rounded-sm px-3 py-2 text-sm font-medium disabled:opacity-60"
           style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
         >
           <ListPlus size={16} strokeWidth={1.5} />
-          {mutation.isPending ? "Creating…" : "Create task"}
+          {pending ? "Creating…" : "Create task"}
         </button>
       </form>
     </Panel>

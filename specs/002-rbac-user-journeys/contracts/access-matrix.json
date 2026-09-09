@@ -1,68 +1,77 @@
 {
-  "version": "1.1.0",
-  "clarifications_session": "2026-08-04",
+  "version": "2.0.0",
   "roles": ["user", "security_analyst", "security_manager", "admin"],
   "capabilities": {
     "login": ["user", "security_analyst", "security_manager", "admin"],
-    "view_ops_dashboard": ["user", "security_analyst", "security_manager"],
+    "view_ops_dashboard": ["user", "security_analyst", "security_manager", "admin"],
     "view_threat_detection": {
-      "user": "read_only_org",
-      "security_analyst": "assigned_scope",
+      "user": "all",
+      "security_analyst": "all",
       "security_manager": "all",
-      "admin": "deny"
+      "admin": "all"
     },
     "view_scan_reports": {
-      "user": "read_only_org",
-      "security_analyst": "assigned_scope",
+      "user": "all",
+      "security_analyst": "all",
       "security_manager": "all",
-      "admin": "deny"
+      "admin": "all"
     },
     "view_tasks": {
-      "user": "deny",
-      "security_analyst": "own_only",
+      "user": "all",
+      "security_analyst": "all",
       "security_manager": "all",
-      "admin": "deny"
+      "admin": "all"
     },
-    "create_task": ["security_manager"],
-    "edit_task_metadata": ["security_manager"],
-    "assign_task": ["security_manager"],
+    "create_task": ["user", "security_analyst", "security_manager", "admin"],
+    "edit_task_metadata": ["user", "security_analyst", "security_manager", "admin"],
+    "assign_task": ["user", "security_analyst", "security_manager", "admin"],
     "start_task": {
-      "security_analyst": "if_assignee",
-      "security_manager": "any"
+      "user": "any",
+      "security_analyst": "any",
+      "security_manager": "any",
+      "admin": "any"
     },
     "complete_task": {
-      "security_analyst": "if_assignee",
-      "security_manager": "any"
+      "user": "any",
+      "security_analyst": "any",
+      "security_manager": "any",
+      "admin": "any"
     },
     "block_task": {
-      "security_analyst": "if_assignee",
-      "security_manager": "any"
+      "user": "any",
+      "security_analyst": "any",
+      "security_manager": "any",
+      "admin": "any"
     },
     "review_or_close_task": {
-      "security_analyst": "deny",
-      "security_manager": "any"
+      "user": "any",
+      "security_analyst": "any",
+      "security_manager": "any",
+      "admin": "any"
     },
     "task_notes_and_links": {
-      "security_analyst": "own_tasks",
-      "security_manager": "any_task"
+      "user": "any_task",
+      "security_analyst": "any_task",
+      "security_manager": "any_task",
+      "admin": "any_task"
     },
     "red_team_tools": {
-      "security_analyst": "if_any_in_progress_red",
+      "user": "always",
+      "security_analyst": "always",
       "security_manager": "always",
-      "user": "deny",
-      "admin": "deny"
+      "admin": "always"
     },
     "blue_team_tools": {
-      "security_analyst": "if_any_in_progress_blue",
+      "user": "always",
+      "security_analyst": "always",
       "security_manager": "always",
-      "user": "deny",
-      "admin": "deny"
+      "admin": "always"
     },
-    "admin_panel": ["admin"],
-    "create_user_assign_role": ["admin"],
-    "assign_admin_role": ["admin"],
-    "demote_or_disable_admin": ["admin"],
-    "issue_one_time_credentials": ["admin"]
+    "admin_panel": ["user", "security_analyst", "security_manager", "admin"],
+    "create_user_assign_role": ["user", "security_analyst", "security_manager", "admin"],
+    "assign_admin_role": ["user", "security_analyst", "security_manager", "admin"],
+    "demote_or_disable_admin": ["user", "security_analyst", "security_manager", "admin"],
+    "issue_one_time_credentials": ["user", "security_analyst", "security_manager", "admin"]
   },
   "bootstrap": {
     "first_admin": "out_of_band_only",

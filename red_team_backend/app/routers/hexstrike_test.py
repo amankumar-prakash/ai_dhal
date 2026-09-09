@@ -9,7 +9,9 @@ from langchain.agents import create_agent
 from langchain_mcp_adapters.tools import load_mcp_tools
 from pydantic import BaseModel, Field
 
+from app.adapters.llm_model_factory import build_agent_model
 from app.adapters.mcp_client import create_mcp_client
+from app.pipelines.task_discovery import agent_system_prompt, select_recon_tools
 from app.settings import get_settings
 
 router = APIRouter(tags=["hexstrike-test"])
@@ -62,13 +64,13 @@ async def test_hexstrike(body: TestHexstrikeBody) -> dict[str, Any]:
         }
 
     _ensure_openai_env()
-    model = f"openai:{settings.llm_model}"
+    model = build_agent_model(settings)
     client = create_mcp_client(settings)
 
     try:
         async with client.session(body.server) as session:
-            tools = await load_mcp_tools(session)
-            agent = create_agent(model, tools)
+            tools = select_recon_tools(await load_mcp_tools(session))
+            agent = create_agent(model, tools, system_prompt=agent_system_prompt())
             result = await agent.ainvoke(
                 {"messages": [{"role": "user", "content": body.message}]}
             )

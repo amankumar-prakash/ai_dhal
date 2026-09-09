@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     blue_service_token: str = "change-me-blue"
     red_worker_url: str = "http://localhost:8001"
     blue_worker_url: str = "http://localhost:8002"
+    test_username: str = ""
+    test_password: str = ""
+    test_manager_username: str = ""
+    test_manager_password: str = ""
 
     # Orchestrator / LLM settings
     openai_api_key: str = ""

@@ -1,3 +1,4 @@
+import os
 from collections import defaultdict, deque
 from time import time
 
@@ -10,6 +11,7 @@ from app.db.store import get_store
 from app.routers import (
     admin_users,
     assets,
+    auth_login,
     cai_chat,
     findings,
     jobs,
@@ -25,6 +27,7 @@ from app.routers import (
 app = FastAPI(title="Red/Blue Platform API", version="0.1.0")
 
 API = "/api/v1"
+app.include_router(auth_login.router, prefix=API)
 app.include_router(assets.router, prefix=API)
 app.include_router(scans.router, prefix=API)
 app.include_router(findings.router, prefix=API)
@@ -65,17 +68,33 @@ class JobRateLimitMiddleware(BaseHTTPMiddleware):
 
 # Browser UI (Vite) calls this API cross-origin with Authorization → needs preflight.
 # Middleware is applied in reverse order of add_middleware; add CORS last so it is outermost.
-app.add_middleware(JobRateLimitMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+def _cors_origins() -> list[str]:
+    origins = [
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:8081",
         "http://127.0.0.1:8081",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-    ],
+        "http://localhost:10100",
+        "http://127.0.0.1:10100",
+    ]
+    public_ip = (os.environ.get("PUBLIC_IPADDR") or "").strip()
+    public_ui = (os.environ.get("VAST_TCP_PORT_10100") or "").strip()
+    if public_ip and public_ui:
+        origins.extend(
+            [
+                f"http://{public_ip}:{public_ui}",
+                f"https://{public_ip}:{public_ui}",
+            ]
+        )
+    return origins
+
+
+app.add_middleware(JobRateLimitMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -110,9 +129,55 @@ def _seed_lab_assets() -> None:
         )
 
 
+def _seed_juice_shop_task() -> None:
+    """Restore the lab Juice Shop recon draft after an in-memory API restart."""
+    settings = get_settings()
+    if (settings.api_store or "").lower() != "memory":
+        return
+    from datetime import datetime, timezone
+    from uuid import UUID
+
+    from app.lab_users import lab_accounts, user_id_for_email
+
+    store = get_store()
+    task_id = UUID("7d15e2c7-8ed3-425c-955c-732f66b6c56f")
+    if store.get("tasks", task_id):
+        return
+    mgr = next((a for a in lab_accounts(settings) if a["role"] == "security_manager"), None)
+    manager_id = user_id_for_email(mgr["email"]) if mgr else None
+    now = datetime.now(timezone.utc)
+    store.create(
+        "tasks",
+        {
+            "id": task_id,
+            "target": "http://81.183.231.113:25429",
+            "description": (
+                "Authorized HexStrike recon of OWASP Juice Shop "
+                "(from source on :10200 / public :25429). "
+                "Phases: nmap, httpx-toolkit, gobuster/feroxbuster, katana, "
+                "/rest+/api probe, nuclei exposure tags."
+            ),
+            "patch_scope": "none — lab Juice Shop, no WAF, no edge hardening",
+            "asset_id": None,
+            "task_type": "red",
+            "status": "draft",
+            "created_by": manager_id,
+            "assignee_id": None,
+            "assigning_manager_id": manager_id,
+            "linked_job_id": None,
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+
+
 @app.on_event("startup")
 def on_startup():
     _seed_lab_assets()
+    from app.lab_users import seed_lab_identities
+
+    seed_lab_identities()
+    _seed_juice_shop_task()
 
 
 @app.get(f"{API}/health")

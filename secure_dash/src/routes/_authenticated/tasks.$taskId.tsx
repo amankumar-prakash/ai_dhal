@@ -1,281 +1,316 @@
-import { useMemo, useState } from "react";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Swords, ShieldAlert } from "lucide-react";
-import { requireTasksRole } from "@/lib/route-guards";
-import {
-  analystRolesQuery,
-  taskAuditQuery,
-  taskQuery,
-  transitionTask,
-  type TaskAction,
-} from "@/lib/tasks-api";
+import { ArrowLeft, GitBranch, Play, ScrollText, ShieldAlert, ShieldCheck, Square, Swords } from "lucide-react";
 import { relTime } from "@/lib/security";
-import { TaskNotes } from "@/components/tasks/TaskNotes";
-import { TaskLinks } from "@/components/tasks/TaskLinks";
+import { resultsUnlocked } from "@/lib/tasks";
+import { taskQuery, taskResultsQuery, transitionTask } from "@/lib/tasks-api";
 import { StatusPill } from "@/components/tasks/TaskBoard";
-import { ErrorBanner, Eyebrow, PageHeader, Panel, SkeletonRows } from "@/components/sd/primitives";
+import { TaskAttackChain } from "@/components/tasks/TaskAttackChain";
+import { TaskLogs } from "@/components/tasks/TaskLogs";
+import { TaskPatches } from "@/components/tasks/TaskPatches";
+import { TaskRunClock, TaskRunProgress } from "@/components/tasks/TaskRunProgress";
+import { ErrorBanner, Eyebrow, PageHeader, Panel } from "@/components/sd/primitives";
 
 export const Route = createFileRoute("/_authenticated/tasks/$taskId")({
-  head: () => ({ meta: [{ title: "Task detail — SecureDash" }] }),
-  beforeLoad: ({ context }) => {
-    requireTasksRole(context.me);
-  },
+  head: () => ({ meta: [{ title: "Task — SecureDash" }] }),
   component: TaskDetailPage,
 });
 
-const ACTION_LABEL: Record<TaskAction, string> = {
-  assign: "Assign",
-  start: "Start",
-  block: "Block",
-  unblock: "Unblock",
-  complete: "Complete",
-  review: "Mark reviewed",
-  close: "Close",
-  reassign: "Reassign",
-};
-
-const DESTRUCTIVE: Partial<Record<TaskAction, boolean>> = { block: true, close: true };
+type DetailTab = "overview" | "logs" | "attack-chain" | "patches";
 
 function TaskDetailPage() {
   const { taskId } = Route.useParams();
-  const { me } = Route.useRouteContext();
   const qc = useQueryClient();
-  const router = useRouter();
+  const [tab, setTab] = useState<DetailTab>("overview");
 
-  const task = useQuery(taskQuery(taskId));
-  const audit = useQuery(taskAuditQuery(taskId));
-  const analysts = useQuery(analystRolesQuery);
-
-  const [error, setError] = useState<string | null>(null);
-  const [assigneePick, setAssigneePick] = useState("");
-
-  const isManager = me.role === "security_manager";
-  const isAssignee = task.data?.assignee_id === me.user_id;
-  const canAct = isManager || isAssignee;
-
-  const invalidateAll = () => {
-    qc.invalidateQueries({ queryKey: ["tasks"] });
-    qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
-    qc.invalidateQueries({ queryKey: ["tasks", "audit", taskId] });
-    // Starting/completing a task changes `/me`'s tool_unlock for the Analyst.
-    router.invalidate();
-  };
-
-  const actionMutation = useMutation({
-    mutationFn: (action: TaskAction) => transitionTask(taskId, action),
-    onSuccess: () => {
-      setError(null);
-      invalidateAll();
+  const taskQ = useQuery({
+    ...taskQuery(taskId),
+    refetchInterval: (q) => (q.state.data?.status === "in_progress" ? 3000 : false),
+  });
+  const resultsQ = useQuery({
+    ...taskResultsQuery(taskId),
+    refetchInterval: (q) => {
+      const status = q.state.data?.job?.status ?? taskQ.data?.status;
+      return status === "running" || status === "dispatched" || status === "queued" || status === "in_progress"
+        ? 1000
+        : false;
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "Action failed"),
   });
 
-  const assignMutation = useMutation({
-    mutationFn: () =>
-      transitionTask(taskId, task.data?.assignee_id ? "reassign" : "assign", assigneePick),
+  const startMut = useMutation({
+    mutationFn: () => transitionTask(taskId, "start"),
     onSuccess: () => {
-      setError(null);
-      setAssigneePick("");
-      invalidateAll();
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
+      setTab("overview");
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "Could not assign"),
   });
 
-  const availableActions = useMemo<TaskAction[]>(() => {
-    if (!task.data) return [];
-    const status = task.data.status;
-    const actions: TaskAction[] = [];
-    if (canAct) {
-      if (status === "assigned" || status === "blocked") actions.push("start");
-      if (status === "in_progress") actions.push("block", "complete");
-      if (status === "blocked") actions.push("unblock", "complete");
-    }
-    if (isManager) {
-      if (status === "completed") actions.push("review");
-      if (status === "reviewed" || status === "completed") actions.push("close");
-    }
-    return actions;
-  }, [task.data, canAct, isManager]);
+  const stopMut = useMutation({
+    mutationFn: () => transitionTask(taskId, "stop"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks", "results", taskId] });
+    },
+  });
 
-  if (task.isError) {
+  const task = taskQ.data;
+  const results = resultsQ.data;
+  const unlocked = task ? resultsUnlocked(task.status) : false;
+
+  if (taskQ.isError) {
     return (
-      <ErrorBanner
-        message="Task not found or no longer available."
-        onRetry={() => task.refetch()}
-      />
+      <div className="mx-auto max-w-[900px]">
+        <Link
+          to="/tasks"
+          className="micro mb-3 inline-flex items-center gap-1"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <ArrowLeft size={12} strokeWidth={1.5} /> Back to Task Runner
+        </Link>
+        <ErrorBanner
+          message={taskQ.error instanceof Error ? taskQ.error.message : "Task not found or no longer available."}
+        />
+      </div>
     );
   }
-  if (task.isLoading || !task.data) {
-    return <SkeletonRows rows={4} height={44} />;
+
+  if (!task) {
+    return (
+      <div className="mx-auto max-w-[900px]">
+        <Link
+          to="/tasks"
+          className="micro mb-3 inline-flex items-center gap-1"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <ArrowLeft size={12} strokeWidth={1.5} /> Back to Task Runner
+        </Link>
+        <p className="micro" style={{ color: "var(--text-muted)" }}>
+          Loading task…
+        </p>
+      </div>
+    );
   }
 
-  const t = task.data;
-  const readOnly = t.status === "closed";
-  const toolsPath = t.task_type === "red" ? "/tools/red" : "/tools/blue";
+  const jobError = results?.job?.error;
+  const jobStatus = results?.job?.status;
+  const jobFailed = jobStatus === "failed";
+  const jobLive = !jobStatus || jobStatus === "queued" || jobStatus === "dispatched" || jobStatus === "running";
+  const canStart =
+    task.status === "assigned" ||
+    task.status === "draft" ||
+    task.status === "blocked" ||
+    (task.status === "in_progress" && jobFailed);
+  const canStop = task.status === "in_progress" && jobLive && !jobFailed;
+  const showRunCard =
+    task.status === "in_progress" || (task.status === "blocked" && jobStatus === "cancelled");
+  const showLiveClock = task.status === "in_progress" && jobLive && !jobFailed;
+  const showRedTools = task.task_type === "red" || task.task_type === "both";
+  const showBlueTools = task.task_type === "blue" || task.task_type === "both";
+
+  const tabs: { id: DetailTab; label: string; visible: boolean }[] = [
+    { id: "overview", label: "Overview", visible: true },
+    { id: "logs", label: "Logs", visible: true },
+    { id: "attack-chain", label: "Attack Chain", visible: unlocked },
+    { id: "patches", label: "Patches", visible: unlocked },
+  ];
 
   return (
-    <div className="mx-auto max-w-[900px]">
+    <div className="mx-auto max-w-[1100px]">
       <Link
         to="/tasks"
         className="micro mb-3 inline-flex items-center gap-1"
         style={{ color: "var(--text-secondary)" }}
       >
-        <ArrowLeft size={12} strokeWidth={1.5} /> Back to tasks
+        <ArrowLeft size={12} strokeWidth={1.5} /> Back to Task Runner
       </Link>
       <PageHeader
-        title={t.target}
-        subtitle={t.description || undefined}
-        right={<StatusPill status={t.status} />}
+        title={task.target}
+        subtitle={task.description || undefined}
+        right={<StatusPill status={task.status} />}
       />
 
-      {error && (
-        <div className="mb-4">
-          <ErrorBanner message={error} />
-        </div>
-      )}
-
-      <Panel className="p-4">
-        <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-          <div>
-            <Eyebrow>Type</Eyebrow>
-            <div className="mt-1 uppercase">{t.task_type}</div>
-          </div>
-          <div>
-            <Eyebrow>Patch scope</Eyebrow>
-            <div className="mt-1">{t.patch_scope || "—"}</div>
-          </div>
-          <div>
-            <Eyebrow>Started</Eyebrow>
-            <div className="mono mt-1">{relTime(t.started_at)}</div>
-          </div>
-          <div>
-            <Eyebrow>Closed</Eyebrow>
-            <div className="mono mt-1">{relTime(t.closed_at)}</div>
-          </div>
-        </div>
-
-        {readOnly ? (
-          <p className="mt-4 text-sm" style={{ color: "var(--text-muted)" }}>
-            This task is closed and read-only.
-          </p>
-        ) : (
-          <>
-            {availableActions.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {availableActions.map((a) => (
-                  <button
-                    key={a}
-                    onClick={() => actionMutation.mutate(a)}
-                    disabled={actionMutation.isPending}
-                    className="rounded-sm px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-                    style={{
-                      background: DESTRUCTIVE[a] ? "var(--surface-raised)" : "var(--accent-ember)",
-                      border: DESTRUCTIVE[a] ? "1px solid var(--border-hairline)" : "none",
-                      color: DESTRUCTIVE[a] ? "var(--text-primary)" : "var(--bg-base)",
-                    }}
-                  >
-                    {ACTION_LABEL[a]}
-                  </button>
-                ))}
-              </div>
-            )}
-            {t.status === "in_progress" && (isManager || isAssignee) && (
-              <Link
-                to={toolsPath}
-                search={{ taskId: t.id }}
-                className="mt-3 inline-flex items-center gap-1 micro"
-                style={{ color: "var(--text-secondary)" }}
+      <div
+        className="mb-6 flex flex-wrap gap-1 border-b"
+        style={{ borderColor: "var(--border-hairline)" }}
+        role="tablist"
+        aria-label="Task sections"
+      >
+        {tabs
+          .filter((t) => t.visible)
+          .map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(t.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm"
+                style={{
+                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                  borderBottom: `2px solid ${active ? "var(--text-primary)" : "transparent"}`,
+                }}
               >
-                {t.task_type === "red" ? (
-                  <Swords size={12} strokeWidth={1.5} />
-                ) : (
-                  <ShieldAlert size={12} strokeWidth={1.5} />
-                )}
-                Open {t.task_type === "red" ? "Red" : "Blue"} Tools for this task
-              </Link>
-            )}
-            {isManager && (
-              <div
-                className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
-                style={{ borderColor: "var(--border-hairline)" }}
-              >
-                <select
-                  value={assigneePick}
-                  onChange={(e) => setAssigneePick(e.target.value)}
-                  className="mono micro rounded-sm px-2 py-1.5"
-                  style={{
-                    background: "var(--surface-raised)",
-                    border: "1px solid var(--border-hairline)",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <option value="">Pick an Analyst…</option>
-                  {(analysts.data ?? []).map((r) => (
-                    <option key={r.user_id} value={r.user_id}>
-                      {r.user_id}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => assignMutation.mutate()}
-                  disabled={!assigneePick || assignMutation.isPending}
-                  className="rounded-sm px-3 py-1.5 text-sm disabled:opacity-50"
-                  style={{
-                    border: "1px solid var(--border-hairline)",
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  {t.assignee_id ? "Reassign" : "Assign"}
-                </button>
-              </div>
-            )}
-            {!canAct && availableActions.length === 0 && !isManager && (
-              <p className="mt-4 text-sm" style={{ color: "var(--text-muted)" }}>
-                Only the assignee or a Security Manager can act on this task.
-              </p>
-            )}
-          </>
+                {t.id === "logs" && <ScrollText size={14} strokeWidth={1.5} />}
+                {t.id === "attack-chain" && <GitBranch size={14} strokeWidth={1.5} />}
+                {t.id === "patches" && <ShieldCheck size={14} strokeWidth={1.5} />}
+                {t.label}
+              </button>
+            );
+          })}
+        {!unlocked && (
+          <span className="micro ml-auto self-center px-2" style={{ color: "var(--text-muted)" }}>
+            Attack Chain and Patches unlock after the task completes
+          </span>
         )}
-      </Panel>
-
-      <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Panel className="p-4">
-          <TaskNotes taskId={taskId} canWrite={canAct && !readOnly} />
-        </Panel>
-        <Panel className="p-4">
-          <TaskLinks taskId={taskId} canWrite={canAct && !readOnly} />
-        </Panel>
       </div>
 
-      <Panel className="mt-6 p-4">
-        <Eyebrow>Audit trail</Eyebrow>
-        {audit.isLoading ? (
-          <SkeletonRows rows={2} height={28} />
-        ) : (audit.data ?? []).length === 0 ? (
-          <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-            No events yet.
-          </p>
-        ) : (
-          <ul className="mt-2 flex flex-col gap-1">
-            {(audit.data ?? []).map((ev) => (
-              <li
-                key={ev.id}
-                className="mono micro flex flex-wrap items-center gap-2"
-                style={{ color: "var(--text-secondary)" }}
+      {tab === "overview" && (
+        <Panel className="p-4">
+          <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+            <div>
+              <Eyebrow>Type</Eyebrow>
+              <div className="mt-1 uppercase">{task.task_type}</div>
+            </div>
+            <div>
+              <Eyebrow>Assignee</Eyebrow>
+              <div className="mt-1 mono">{task.assignee_id ? task.assignee_id.slice(0, 8) : "Unassigned"}</div>
+            </div>
+            <div>
+              <Eyebrow>Patch scope</Eyebrow>
+              <div className="mt-1">{task.patch_scope || "—"}</div>
+            </div>
+            <div>
+              {showRunCard ? (
+                <TaskRunClock task={task} results={results} ticking={showLiveClock} />
+              ) : (
+                <>
+                  <Eyebrow>Started</Eyebrow>
+                  <div className="mono mt-1">{relTime(task.started_at)}</div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {showRunCard && (
+            <TaskRunProgress
+              task={task}
+              results={results}
+              stopped={task.status === "blocked" || jobStatus === "cancelled"}
+            />
+          )}
+
+          {jobError && (
+            <div className="mt-4">
+              <ErrorBanner message={jobError} />
+            </div>
+          )}
+
+          {startMut.isError && (
+            <div className="mt-4">
+              <ErrorBanner
+                message={
+                  startMut.error instanceof Error
+                    ? startMut.error.message
+                    : "Could not start the task"
+                }
+              />
+            </div>
+          )}
+
+          {stopMut.isError && (
+            <div className="mt-4">
+              <ErrorBanner
+                message={
+                  stopMut.error instanceof Error ? stopMut.error.message : "Could not stop the task"
+                }
+              />
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {canStop && (
+              <button
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      "Stop this run? HexStrike processes will be killed.",
+                    )
+                  ) {
+                    return;
+                  }
+                  stopMut.mutate();
+                }}
+                disabled={stopMut.isPending}
+                className="inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm disabled:opacity-60"
+                style={{
+                  border: "1px solid var(--accent-ember)",
+                  color: "var(--accent-ember)",
+                }}
               >
-                <span style={{ color: "var(--text-muted)" }}>{relTime(ev.created_at)}</span>
-                <span>{ev.action}</span>
-                {ev.from_status && ev.to_status && (
-                  <span style={{ color: "var(--text-muted)" }}>
-                    {ev.from_status} → {ev.to_status}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
+                <Square size={14} strokeWidth={1.5} />
+                {stopMut.isPending ? "Stopping…" : "Stop"}
+              </button>
+            )}
+            {canStart && (
+              <button
+                onClick={() => startMut.mutate()}
+                disabled={startMut.isPending}
+                className="inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium disabled:opacity-60"
+                style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
+              >
+                <Play size={14} strokeWidth={1.5} />
+                {startMut.isPending ? "Starting…" : jobFailed ? "Retry task" : "Start task"}
+              </button>
+            )}
+            {task.status === "in_progress" && showRedTools && (
+              <Link
+                to="/tools/red"
+                search={{ taskId: task.id }}
+                className="inline-flex items-center gap-1 rounded-sm px-3 py-1.5 text-sm"
+                style={{
+                  border: "1px solid var(--border-hairline)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <Swords size={14} strokeWidth={1.5} />
+                Open Red Tools
+              </Link>
+            )}
+            {task.status === "in_progress" && showBlueTools && (
+              <Link
+                to="/tools/blue"
+                search={{ taskId: task.id }}
+                className="inline-flex items-center gap-1 rounded-sm px-3 py-1.5 text-sm"
+                style={{
+                  border: "1px solid var(--border-hairline)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <ShieldAlert size={14} strokeWidth={1.5} />
+                Open Blue Tools
+              </Link>
+            )}
+          </div>
+        </Panel>
+      )}
+
+      {tab === "logs" && <TaskLogs task={task} results={results} />}
+
+      {tab === "attack-chain" && unlocked && <TaskAttackChain results={results} />}
+
+      {tab === "patches" && unlocked && (
+        <TaskPatches
+          patches={results?.patches ?? []}
+          findings={results?.findings ?? []}
+          taskId={task.id}
+          target={task.target}
+        />
+      )}
     </div>
   );
 }

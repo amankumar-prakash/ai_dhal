@@ -2,34 +2,36 @@ import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchMe } from "@/lib/api-client";
 import type { MeResponse } from "@/lib/rbac-types";
-import { setDeniedMessage } from "@/lib/route-guards";
 import { AppShell } from "@/components/sd/AppShell";
 import { ForcePasswordChange } from "@/components/auth/ForcePasswordChange";
-
-// Admin identity is provisioning-only — never render ops surfaces for Admin.
-// See specs/002-rbac-user-journeys/contracts/route-guards.md.
-const OPS_ONLY_PATHS = new Set(["/", "/threats", "/scans", "/patches", "/attack-chain"]);
+import { clearLabSession, getLabAccessToken } from "@/lib/session";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
-  beforeLoad: async ({ location }) => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
-
+  beforeLoad: async () => {
     let me: MeResponse;
-    try {
-      me = await fetchMe();
-    } catch {
-      // Principal could not be resolved (missing role row, expired token, API down) — bounce to sign-in.
-      throw redirect({ to: "/auth" });
+    let user: { id: string; email?: string | null };
+
+    if (getLabAccessToken()) {
+      try {
+        me = await fetchMe();
+      } catch {
+        clearLabSession();
+        throw redirect({ to: "/auth" });
+      }
+      user = { id: String(me.user_id), email: me.email };
+    } else {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) throw redirect({ to: "/auth" });
+      try {
+        me = await fetchMe();
+      } catch {
+        throw redirect({ to: "/auth" });
+      }
+      user = data.user;
     }
 
-    if (me.role === "admin" && OPS_ONLY_PATHS.has(location.pathname)) {
-      setDeniedMessage("Admin accounts do not have access to operational views.");
-      throw redirect({ to: "/admin" });
-    }
-
-    return { user: data.user, me };
+    return { user, me };
   },
   component: RouteComponent,
 });

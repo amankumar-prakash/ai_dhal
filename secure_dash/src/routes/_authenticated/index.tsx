@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
-import { ChevronRight, Eye, ShieldCheck } from "lucide-react";
+import { ChevronRight, ShieldCheck } from "lucide-react";
 import {
   assetsQuery,
   eventsQuery,
@@ -224,30 +224,8 @@ function SeverityBar({ counts }: { counts: Record<Severity, number> }) {
   );
 }
 
-function ReadOnlyExplainer() {
-  return (
-    <Panel className="mb-6 flex items-start gap-3 p-4">
-      <Eye
-        size={18}
-        strokeWidth={1.5}
-        className="mt-0.5 shrink-0"
-        style={{ color: "var(--text-secondary)" }}
-      />
-      <div>
-        <div className="text-sm font-medium">Read-only access</div>
-        <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-          Your account can view validated findings, threat events and scan reports across the
-          organization, but cannot start scans, manage tasks, or open Red/Blue team tools. Ask a
-          Security Manager if you need write access.
-        </p>
-      </div>
-    </Panel>
-  );
-}
-
 function Dashboard() {
   useRealtime(["findings", "threat_events", "scans"]);
-  const { me } = Route.useRouteContext();
   const findings = useQuery(findingsQuery);
   const assets = useQuery(assetsQuery);
   const events = useQuery(eventsQuery);
@@ -286,8 +264,6 @@ function Dashboard() {
   return (
     <div className="mx-auto max-w-[1400px]">
       <PageHeader title="Dashboard" subtitle="Validated posture across the monitored estate." />
-
-      {me.role === "user" && <ReadOnlyExplainer />}
 
       {loading ? (
         <SkeletonRows rows={4} height={92} />
@@ -338,7 +314,7 @@ function Dashboard() {
                       style={{ borderColor: "var(--border-hairline)" }}
                     >
                       <Link
-                        to="/scans"
+                        to="/tasks"
                         className="flex items-center gap-3 px-4 py-3 transition-colors duration-150 ease-out"
                       >
                         <div className="min-w-0 flex-1">

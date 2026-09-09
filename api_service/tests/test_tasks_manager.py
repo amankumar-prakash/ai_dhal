@@ -65,3 +65,25 @@ def test_manager_create_and_start_on_behalf(client, monkeypatch):
     assert audit.status_code == 200
     actions = [a["action"] for a in audit.json()]
     assert "started_on_behalf" in actions
+
+
+def test_user_can_create_and_list(client, monkeypatch):
+    user = uuid4()
+    _auth(monkeypatch, user, "user")
+
+    created = client.post(
+        "/api/v1/tasks",
+        headers={"Authorization": "Bearer x"},
+        json={
+            "target": "user-task",
+            "description": "open",
+            "patch_scope": "none",
+            "task_type": "blue",
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["status"] == "draft"
+
+    listed = client.get("/api/v1/tasks", headers={"Authorization": "Bearer x"})
+    assert listed.status_code == 200
+    assert any(t["id"] == created.json()["id"] for t in listed.json())

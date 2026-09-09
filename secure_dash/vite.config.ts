@@ -12,4 +12,21 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      host: "127.0.0.1",
+      port: 5173,
+      strictPort: true,
+      allowedHosts: true,
+      hmr: {
+        clientPort: Number(process.env.VITE_HMR_CLIENT_PORT || process.env.VAST_TCP_PORT_10100 || 5173),
+      },
+      proxy: {
+        "/api": {
+          target: "http://127.0.0.1:8000",
+          changeOrigin: true,
+        },
+      },
+    },
+  },
 });

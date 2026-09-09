@@ -196,8 +196,17 @@ def patch_job(job_id: UUID, body: JobPatch) -> dict[str, Any]:
     job = get_job(job_id)
     if job["status"] in TERMINAL_JOB:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is terminal")
-    row = _store().update("jobs", job_id, body.model_dump(exclude_unset=True))
+    data = body.model_dump(exclude_unset=True)
+    if data.get("status") == "running" and not job.get("started_at"):
+        data.setdefault("started_at", datetime.now(timezone.utc))
+    if data.get("status") in {"completed", "failed", "cancelled"}:
+        data.setdefault("finished_at", datetime.now(timezone.utc))
+    row = _store().update("jobs", job_id, data)
     assert row
+    if data.get("status") == "completed":
+        from app.services.tasks import complete_linked_task_for_job
+
+        complete_linked_task_for_job(job_id)
     return row
 
 
@@ -255,7 +264,49 @@ def patch_patch(patch_id: UUID, body: PatchPatch) -> dict[str, Any]:
 
 def create_tool_run(body: ToolRunCreate) -> dict[str, Any]:
     get_job(body.job_id)
-    return _store().create("tool_runs", {"id": uuid4(), **body.model_dump()})
+    data = body.model_dump()
+    now = datetime.now(timezone.utc)
+    if data.get("started_at") is None:
+        data["started_at"] = now
+    if data.get("finished_at") is None and data.get("exit_code") is not None:
+        data["finished_at"] = now
+    return _store().create("tool_runs", {"id": uuid4(), **data})
+
+
+def append_job_progress(job_id: UUID, kind: str, message: str, meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    job = get_job(job_id)
+    if job["status"] in TERMINAL_JOB:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is terminal")
+    return _store().create(
+        "job_progress_events",
+        {
+            "id": uuid4(),
+            "job_id": job_id,
+            "kind": kind,
+            "message": message,
+            "meta": meta or {},
+            "created_at": datetime.now(timezone.utc),
+        },
+    )
+
+
+def list_job_progress(job_id: UUID, *, limit: int = 500) -> list[dict[str, Any]]:
+    rows = [r for r in _store().list_all("job_progress_events") if str(r.get("job_id")) == str(job_id)]
+    rows.sort(key=lambda r: str(r.get("created_at") or ""))
+    if len(rows) > limit:
+        return rows[-limit:]
+    return rows
+
+
+def list_tool_runs(job_id: UUID | None = None) -> list[dict[str, Any]]:
+    rows = _store().list_all("tool_runs")
+    if job_id is None:
+        return rows
+    return [r for r in rows if str(r.get("job_id")) == str(job_id)]
+
+
+def scans_for_job(job_id: UUID) -> list[dict[str, Any]]:
+    return [r for r in _store().list_all("scans") if str(r.get("job_id")) == str(job_id)]
 
 
 def create_chain(name: str, scan_id: UUID | None, team: str) -> dict[str, Any]:
@@ -276,7 +327,7 @@ def list_chains() -> list[dict[str, Any]]:
 
 
 def list_chain_steps(chain_id: UUID) -> list[dict[str, Any]]:
-    return [r for r in _store().list_all("attack_chain_steps") if r.get("chain_id") == chain_id]
+    return [r for r in _store().list_all("attack_chain_steps") if str(r.get("chain_id")) == str(chain_id)]
 
 
 def list_roles() -> list[dict[str, Any]]:

@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 
 from app.db.store import get_store
-from app.deps import Principal, PrincipalKind
+from app.deps import Principal
 from app.schemas.models import TaskCreate, TaskLinkCreate, TaskNoteCreate, TaskPatch
 from app.services import notifications as notif_svc
 
@@ -19,6 +19,21 @@ def _store():
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _estimated_duration_seconds(job: dict[str, Any], progress: list[dict[str, Any]]) -> int:
+    for ev in reversed(progress):
+        meta = ev.get("meta") or {}
+        raw = meta.get("estimated_duration_seconds")
+        if raw is not None:
+            try:
+                return max(1, int(raw))
+            except (TypeError, ValueError):
+                pass
+    profile = str(job.get("profile") or "")
+    if profile == "task-discovery":
+        return 900
+    return 300
 
 
 def _audit(
@@ -56,12 +71,8 @@ def get_task(task_id: UUID) -> dict[str, Any]:
     return row
 
 
-def list_tasks(principal: Principal, **filters: Any) -> list[dict[str, Any]]:
+def list_tasks(_principal: Principal, **filters: Any) -> list[dict[str, Any]]:
     rows = _store().list_all("tasks")
-    if principal.kind == PrincipalKind.security_analyst:
-        rows = [r for r in rows if str(r.get("assignee_id")) == principal.user_id]
-    elif principal.kind != PrincipalKind.security_manager:
-        raise HTTPException(status_code=403, detail="Cannot list tasks")
     for k, v in filters.items():
         if v is None:
             continue
@@ -70,8 +81,6 @@ def list_tasks(principal: Principal, **filters: Any) -> list[dict[str, Any]]:
 
 
 def create_task(body: TaskCreate, principal: Principal) -> dict[str, Any]:
-    if principal.kind != PrincipalKind.security_manager:
-        raise HTTPException(status_code=403, detail="Only Managers create tasks")
     assert principal.user_id
     manager = UUID(principal.user_id)
     status_val = "assigned" if body.assignee_id else "draft"
@@ -121,17 +130,12 @@ def apply_patch(task_id: UUID, body: TaskPatch, principal: Principal) -> dict[st
     _assert_not_closed(task)
     assert principal.user_id
     actor = UUID(principal.user_id)
-    is_mgr = principal.kind == PrincipalKind.security_manager
-    is_an = principal.kind == PrincipalKind.security_analyst
 
     if body.action:
         return _transition(task, body.action, body.assignee_id, principal)
 
-    # metadata edits — manager only
     meta = body.model_dump(exclude_unset=True, exclude={"action", "status", "linked_job_id"})
     if meta:
-        if not is_mgr:
-            raise HTTPException(status_code=403, detail="Only Managers edit task metadata")
         if "assignee_id" in meta and meta["assignee_id"]:
             prev = task.get("assignee_id")
             meta["status"] = "assigned"
@@ -167,8 +171,6 @@ def apply_patch(task_id: UUID, body: TaskPatch, principal: Principal) -> dict[st
         return _store().update("tasks", task_id, meta) or task
 
     if body.linked_job_id is not None:
-        if not (is_mgr or (is_an and _is_assignee(task, principal))):
-            raise HTTPException(status_code=403, detail="Cannot link job")
         return _store().update("tasks", task_id, {"linked_job_id": body.linked_job_id, "updated_at": _now()}) or task
 
     raise HTTPException(status_code=400, detail="No changes")
@@ -184,44 +186,73 @@ def _transition(
     actor = UUID(principal.user_id)
     task_id = task["id"] if isinstance(task["id"], UUID) else UUID(str(task["id"]))
     cur = str(task.get("status"))
-    is_mgr = principal.kind == PrincipalKind.security_manager
-    is_an = principal.kind == PrincipalKind.security_analyst and _is_assignee(task, principal)
-
-    def ok_analyst_or_mgr() -> None:
-        if not (is_mgr or is_an):
-            raise HTTPException(status_code=403, detail="Not allowed")
 
     patch: dict[str, Any] = {"updated_at": _now()}
     audit_action = action
     to_status = cur
 
     if action == "start":
-        ok_analyst_or_mgr()
-        if cur not in {"assigned", "blocked"}:
+        if cur == "in_progress":
+            from app.services import crud
+
+            linked = task.get("linked_job_id")
+            existing = None
+            if linked:
+                try:
+                    existing = crud.get_job(
+                        linked if isinstance(linked, UUID) else UUID(str(linked))
+                    )
+                except HTTPException:
+                    existing = None
+            if existing and str(existing.get("status")) not in {"failed", "cancelled"}:
+                raise HTTPException(status_code=400, detail="Task already started")
+        elif cur not in {"assigned", "blocked", "draft"}:
             raise HTTPException(status_code=400, detail=f"Cannot start from {cur}")
         to_status = "in_progress"
         patch["status"] = to_status
         patch["started_at"] = _now()
-        if is_mgr and not _is_assignee(task, principal):
+        if not _is_assignee(task, principal):
             audit_action = "started_on_behalf"
         else:
             audit_action = "started"
+    elif action == "stop":
+        if cur != "in_progress":
+            raise HTTPException(status_code=400, detail="Can only stop In Progress")
+        linked = task.get("linked_job_id")
+        if linked:
+            from app.services import crud
+            from app.services.crud import TERMINAL_JOB
+
+            try:
+                existing = crud.get_job(
+                    linked if isinstance(linked, UUID) else UUID(str(linked))
+                )
+            except HTTPException:
+                existing = None
+            if existing and str(existing.get("status")) not in TERMINAL_JOB:
+                try:
+                    crud.cancel_job(
+                        linked if isinstance(linked, UUID) else UUID(str(linked))
+                    )
+                except HTTPException as exc:
+                    if exc.status_code != 409:
+                        raise
+        to_status = "blocked"
+        patch["status"] = to_status
+        audit_action = "stopped"
     elif action == "block":
-        ok_analyst_or_mgr()
         if cur != "in_progress":
             raise HTTPException(status_code=400, detail="Can only block In Progress")
         to_status = "blocked"
         patch["status"] = to_status
         audit_action = "blocked"
     elif action == "unblock":
-        ok_analyst_or_mgr()
         if cur != "blocked":
             raise HTTPException(status_code=400, detail="Not blocked")
         to_status = "in_progress"
         patch["status"] = to_status
         audit_action = "unblocked"
     elif action == "complete":
-        ok_analyst_or_mgr()
         if cur not in {"in_progress", "blocked"}:
             raise HTTPException(status_code=400, detail=f"Cannot complete from {cur}")
         to_status = "completed"
@@ -239,16 +270,12 @@ def _transition(
                 task_id,
             )
     elif action == "review":
-        if not is_mgr:
-            raise HTTPException(status_code=403, detail="Analysts cannot mark Reviewed")
         if cur != "completed":
             raise HTTPException(status_code=400, detail="Review requires Completed")
         to_status = "reviewed"
         patch["status"] = to_status
         audit_action = "reviewed"
     elif action == "close":
-        if not is_mgr:
-            raise HTTPException(status_code=403, detail="Analysts cannot Close")
         if cur not in {"reviewed", "completed"}:
             raise HTTPException(status_code=400, detail="Close requires Reviewed (or Completed)")
         to_status = "closed"
@@ -256,8 +283,6 @@ def _transition(
         patch["closed_at"] = _now()
         audit_action = "closed"
     elif action == "reassign":
-        if not is_mgr:
-            raise HTTPException(status_code=403, detail="Only Managers reassign")
         if not new_assignee:
             raise HTTPException(status_code=400, detail="assignee_id required")
         prev = task.get("assignee_id")
@@ -294,8 +319,6 @@ def _transition(
         assert updated
         return updated
     elif action == "assign":
-        if not is_mgr:
-            raise HTTPException(status_code=403, detail="Only Managers assign")
         if not new_assignee:
             raise HTTPException(status_code=400, detail="assignee_id required")
         to_status = "assigned"
@@ -322,9 +345,6 @@ def add_note(task_id: UUID, body: TaskNoteCreate, principal: Principal) -> dict[
     task = get_task(task_id)
     _assert_not_closed(task)
     assert principal.user_id
-    is_mgr = principal.kind == PrincipalKind.security_manager
-    if not (is_mgr or (principal.kind == PrincipalKind.security_analyst and _is_assignee(task, principal))):
-        raise HTTPException(status_code=403, detail="Cannot note on this task")
     note = _store().create(
         "task_notes",
         {
@@ -343,9 +363,6 @@ def add_link(task_id: UUID, body: TaskLinkCreate, principal: Principal) -> dict[
     task = get_task(task_id)
     _assert_not_closed(task)
     assert principal.user_id
-    is_mgr = principal.kind == PrincipalKind.security_manager
-    if not (is_mgr or (principal.kind == PrincipalKind.security_analyst and _is_assignee(task, principal))):
-        raise HTTPException(status_code=403, detail="Cannot link on this task")
     table = "findings" if body.kind == "finding" else "scans"
     if not _store().get(table, body.ref_id):
         raise HTTPException(status_code=404, detail=f"{body.kind} not found")
@@ -377,3 +394,158 @@ def list_links(task_id: UUID) -> list[dict[str, Any]]:
 def list_audit(task_id: UUID) -> list[dict[str, Any]]:
     get_task(task_id)
     return [r for r in _store().list_all("task_audit_events") if str(r.get("task_id")) == str(task_id)]
+
+
+def complete_linked_task_for_job(job_id: UUID) -> None:
+    """Mark the task that owns this job as completed so Attack Chain / Patches unlock."""
+    now = _now()
+    for task in _store().list_all("tasks"):
+        if str(task.get("linked_job_id")) != str(job_id):
+            continue
+        if str(task.get("status")) in {"completed", "reviewed", "closed"}:
+            continue
+        tid = task["id"] if isinstance(task["id"], UUID) else UUID(str(task["id"]))
+        _store().update(
+            "tasks",
+            tid,
+            {"status": "completed", "completed_at": now, "updated_at": now},
+        )
+        mgr = task.get("assigning_manager_id")
+        if mgr:
+            mid = mgr if isinstance(mgr, UUID) else UUID(str(mgr))
+            notif_svc.notify(
+                mid,
+                "task_completed_for_review",
+                "Task ready for review",
+                f"Completed: {task.get('target')}",
+                tid,
+            )
+
+
+def _task_uuid(task: dict[str, Any]) -> UUID:
+    return task["id"] if isinstance(task["id"], UUID) else UUID(str(task["id"]))
+
+
+def ensure_task_asset(task: dict[str, Any]) -> UUID:
+    from app.schemas.models import AssetCreate
+    from app.services import crud
+
+    if task.get("asset_id"):
+        return task["asset_id"] if isinstance(task["asset_id"], UUID) else UUID(str(task["asset_id"]))
+
+    from app.services.targets import parse_target
+
+    parsed = parse_target(str(task.get("target") or ""))
+    hostname = str(parsed["hostname"] or task.get("target") or "unknown")
+    ip = hostname if hostname.replace(".", "").isdigit() or ":" in hostname else "0.0.0.0"
+    asset = crud.create_asset(
+        AssetCreate(name=str(task.get("target") or hostname), hostname=hostname, ip_address=ip)
+    )
+    aid = asset["id"] if isinstance(asset["id"], UUID) else UUID(str(asset["id"]))
+    tid = _task_uuid(task)
+    _store().update("tasks", tid, {"asset_id": aid, "updated_at": _now()})
+    task["asset_id"] = aid
+    return aid
+
+
+async def start_discovery_run(task: dict[str, Any], principal: Principal) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Create a red task-discovery job. Returns (task, job_to_dispatch_or_None)."""
+    if str(task.get("task_type") or "red") == "blue":
+        return task, None
+    linked = task.get("linked_job_id")
+    if linked:
+        from app.services import crud
+
+        try:
+            existing = crud.get_job(linked if isinstance(linked, UUID) else UUID(str(linked)))
+        except HTTPException:
+            existing = None
+        if existing and str(existing.get("status")) not in {"failed", "cancelled"}:
+            return task, None
+
+    from app.schemas.models import JobCreate
+    from app.services import crud
+
+    asset_id = ensure_task_asset(task)
+    uid = UUID(principal.user_id) if principal.user_id else None
+    job = crud.create_job(
+        JobCreate(team="red", profile="task-discovery", asset_ids=[asset_id]),
+        requested_by=uid,
+    )
+    tid = _task_uuid(task)
+    jid = job["id"] if isinstance(job["id"], UUID) else UUID(str(job["id"]))
+    updated = _store().update("tasks", tid, {"linked_job_id": jid, "updated_at": _now()})
+    assert updated
+    return get_task(tid), job
+
+
+def get_task_results(task_id: UUID) -> dict[str, Any]:
+    """Assemble job, tool runs, findings, chain, and patches for a task."""
+    from app.services import crud
+
+    task = get_task(task_id)
+    job = None
+    tools: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    patches: list[dict[str, Any]] = []
+    chain: dict[str, Any] | None = None
+
+    linked = task.get("linked_job_id")
+    if not linked:
+        return {"task": task, "job": None, "tools": [], "findings": [], "chain": None, "patches": [], "progress": []}
+
+    job_id = linked if isinstance(linked, UUID) else UUID(str(linked))
+    try:
+        job = crud.get_job(job_id)
+    except HTTPException:
+        job = None
+
+    tools = crud.list_tool_runs(job_id)
+    progress = crud.list_job_progress(job_id)
+    scans = crud.scans_for_job(job_id)
+    scan_ids = {str(s["id"]) for s in scans}
+    asset_ids = {str(s.get("asset_id")) for s in scans if s.get("asset_id")}
+    if task.get("asset_id"):
+        asset_ids.add(str(task["asset_id"]))
+
+    for finding in crud.list_findings():
+        if str(finding.get("scan_id") or "") in scan_ids or str(finding.get("asset_id") or "") in asset_ids:
+            findings.append(finding)
+
+    finding_ids = {str(f["id"]) for f in findings}
+    patches = [
+        p for p in crud.list_patches() if str(p.get("finding_id") or "") in finding_ids
+    ]
+
+    chosen = None
+    for c in crud.list_chains():
+        if scan_ids and str(c.get("scan_id") or "") in scan_ids:
+            chosen = c
+            break
+    if chosen is None:
+        # Chains created without scan_id still belong to this run if named with the job.
+        job_short = str(job_id)[:8]
+        for c in crud.list_chains():
+            if job_short in str(c.get("name") or ""):
+                chosen = c
+                break
+    if chosen is not None:
+        cid = chosen["id"] if isinstance(chosen["id"], UUID) else UUID(str(chosen["id"]))
+        steps = crud.list_chain_steps(cid)
+        steps = sorted(steps, key=lambda s: int(s.get("sequence") or 0))
+        chain = {**chosen, "steps": steps}
+
+    job_out = dict(job) if job else None
+    if job_out is not None:
+        job_out["estimated_duration_seconds"] = _estimated_duration_seconds(job_out, progress)
+
+    return {
+        "task": task,
+        "job": job_out,
+        "tools": tools,
+        "findings": findings,
+        "chain": chain,
+        "patches": patches,
+        "progress": progress,
+    }
+

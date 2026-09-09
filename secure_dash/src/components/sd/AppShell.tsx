@@ -4,15 +4,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ClipboardList,
-  GitBranch,
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  Radar,
-  ScanLine,
   ShieldAlert,
-  ShieldCheck,
   Swords,
   UserCog,
   X,
@@ -22,19 +18,11 @@ import { eventsQuery, relTime, scansQuery } from "@/lib/security";
 import { consumeDeniedMessage } from "@/lib/route-guards";
 import { fetchNotifications } from "@/lib/api-client";
 import type { MeResponse } from "@/lib/rbac-types";
+import { clearLabSession } from "@/lib/session";
 
 const authenticatedRouteApi = getRouteApi("/_authenticated");
 
-type NavPath =
-  | "/"
-  | "/threats"
-  | "/scans"
-  | "/patches"
-  | "/attack-chain"
-  | "/tasks"
-  | "/tools/red"
-  | "/tools/blue"
-  | "/admin";
+type NavPath = "/" | "/tasks" | "/tools/red" | "/tools/blue" | "/admin";
 
 type NavItem = {
   to: NavPath;
@@ -43,30 +31,19 @@ type NavItem = {
   key: string | null;
 };
 
-const OPS_NAV: NavItem[] = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, key: null },
-  { to: "/threats", label: "Threat Detection", icon: Radar, key: "threats" },
-  { to: "/scans", label: "Scan Report", icon: ScanLine, key: "scans" },
-  { to: "/patches", label: "Patches", icon: ShieldCheck, key: null },
-  { to: "/attack-chain", label: "Attack Chain", icon: GitBranch, key: null },
-];
+function buildNav(_me: MeResponse): NavItem[] {
+  return [
+    { to: "/", label: "Dashboard", icon: LayoutDashboard, key: null },
+    { to: "/tasks", label: "Task Runner", icon: ClipboardList, key: null },
+    { to: "/tools/red", label: "Red Tools", icon: Swords, key: null },
+    { to: "/tools/blue", label: "Blue Tools", icon: ShieldAlert, key: null },
+    { to: "/admin", label: "Admin", icon: UserCog, key: null },
+  ];
+}
 
-/** Admin is identity-only; everyone else gets the ops surfaces plus role-specific extras. */
-function buildNav(me: MeResponse): NavItem[] {
-  if (me.role === "admin") {
-    return [{ to: "/admin", label: "Admin", icon: UserCog, key: null }];
-  }
-  const items = [...OPS_NAV];
-  if (me.role === "security_analyst" || me.role === "security_manager") {
-    items.push({ to: "/tasks", label: "Tasks", icon: ClipboardList, key: null });
-    if (me.role === "security_manager" || me.tool_unlock.red) {
-      items.push({ to: "/tools/red", label: "Red Tools", icon: Swords, key: null });
-    }
-    if (me.role === "security_manager" || me.tool_unlock.blue) {
-      items.push({ to: "/tools/blue", label: "Blue Tools", icon: ShieldAlert, key: null });
-    }
-  }
-  return items;
+function navActive(pathname: string, to: NavPath): boolean {
+  if (to === "/") return pathname === "/";
+  return pathname === to || pathname.startsWith(`${to}/`);
 }
 
 function LogoMark({ hot }: { hot: boolean }) {
@@ -234,6 +211,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     await qc.cancelQueries();
     qc.clear();
     await supabase.auth.signOut();
+    clearLabSession();
     navigate({ to: "/auth", replace: true });
   }
 
@@ -262,7 +240,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <nav className="flex flex-1 flex-col gap-0.5 px-2">
           {nav.map((item) => {
-            const active = pathname === item.to;
+            const active = navActive(pathname, item.to);
             const badge = item.key ? badges[item.key] : 0;
             return (
               <Link

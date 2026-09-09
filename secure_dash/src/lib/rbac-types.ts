@@ -2,7 +2,7 @@ export type AppRole = "user" | "security_analyst" | "security_manager" | "admin"
 
 export type UserAccountStatus = "pending" | "active" | "disabled";
 
-export type TaskType = "red" | "blue";
+export type TaskType = "red" | "blue" | "both";
 
 export type TaskStatus =
   "draft" | "assigned" | "in_progress" | "blocked" | "completed" | "reviewed" | "closed";
@@ -12,6 +12,7 @@ export type TaskAuditAction =
   | "assigned"
   | "started"
   | "started_on_behalf"
+  | "stopped"
   | "blocked"
   | "unblocked"
   | "completed"

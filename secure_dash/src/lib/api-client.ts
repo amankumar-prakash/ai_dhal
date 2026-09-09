@@ -3,6 +3,7 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import type { MeResponse } from "@/lib/rbac-types";
+import { getLabAccessToken } from "@/lib/session";
 
 const DEFAULT_BASE = "http://localhost:8000/api/v1";
 
@@ -17,6 +18,8 @@ export function apiBaseUrl(): string {
 }
 
 export async function getAccessToken(): Promise<string | null> {
+  const lab = getLabAccessToken();
+  if (lab) return lab;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;
 }
@@ -45,7 +48,25 @@ export async function apiFetch<T = unknown>(
   return (await res.json()) as T;
 }
 
-/** Current principal: role, profile flags (must_change_password) and tool_unlock. */
+export async function apiLogin(email: string, password: string): Promise<{ access_token: string; role: string }> {
+  const res = await fetch(`${apiBaseUrl()}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    let message = detail || `Sign in failed (${res.status})`;
+    try {
+      const parsed = JSON.parse(detail) as { detail?: unknown };
+      if (typeof parsed.detail === "string" && parsed.detail) message = parsed.detail;
+    } catch {
+      /* keep raw body */
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as { access_token: string; role: string };
+}
 export function fetchMe(): Promise<MeResponse> {
   return apiFetch<MeResponse>("/me");
 }
