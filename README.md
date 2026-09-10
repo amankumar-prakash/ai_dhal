@@ -1,4 +1,4 @@
-# SentryOps / Red–Blue Platform
+# AI Dhal / Red–Blue Platform
 
 Lab monorepo: analyst UI (`secure_dash`), platform API (`api_service`), red/blue workers, and HexStrike.
 
@@ -528,6 +528,10 @@ DEMO_SAFE_MODE=1
 
 ## Further reading
 
+- `docs/master.md` — combined architecture, data model, diagrams, API, threat model
+- `docs/README.md` — documentation index
+- `docs/architecture.md` — services, diagrams, request flows, RBAC
+- `docs/data-model.md` — enums, tables, ER diagram, state machines
 - `docs/api-contracts.md` — API surfaces and auth
 - `docs/threat-model.md` — trust boundaries
 - `specs/001-red-blue-platform/` — platform + jobs

@@ -1,5 +1,7 @@
 # API contracts
 
+Architecture and data model: [`architecture.md`](architecture.md), [`data-model.md`](data-model.md).
+
 Canonical OpenAPI: [`specs/001-red-blue-platform/contracts/openapi.yaml`](../specs/001-red-blue-platform/contracts/openapi.yaml)
 
 Internal worker jobs: [`specs/001-red-blue-platform/contracts/internal-jobs.md`](../specs/001-red-blue-platform/contracts/internal-jobs.md)

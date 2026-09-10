@@ -1,4 +1,4 @@
-# Contracts: SentryOps RBAC User Journeys
+# Contracts: AI Dhal RBAC User Journeys
 
 **Feature**: `002-rbac-user-journeys`  
 **Updated**: 2026-08-05

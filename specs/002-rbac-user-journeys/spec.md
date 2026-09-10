@@ -1,4 +1,4 @@
-# Feature Specification: SentryOps Role-Based User Journeys
+# Feature Specification: AI Dhal Role-Based User Journeys
 
 **Feature Branch**: `002-rbac-user-journeys`
 
@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "SentryOps role-based user journeys with a four-role access matrix (User, Security Analyst, Security Manager, Admin), task lifecycle for Red/Blue work, conditional tool-page access, Admin identity provisioning with one-time credentials, and explicit least-privilege boundaries—including Admin identity-only (no operational security data)."
+**Input**: User description: "AI Dhal role-based user journeys with a four-role access matrix (User, Security Analyst, Security Manager, Admin), task lifecycle for Red/Blue work, conditional tool-page access, Admin identity provisioning with one-time credentials, and explicit least-privilege boundaries—including Admin identity-only (no operational security data)."
 
 ## Clarifications
 
@@ -204,7 +204,7 @@ Tasks follow a defined lifecycle used consistently in UI and permissions: Draft 
 
 ## Assumptions
 
-- Product name for this journey set is SentryOps; it applies to the existing analyst dashboard product surface extended with Tasks, role homes, and Admin Panel.
+- Product name for this journey set is AI Dhal; it applies to the existing analyst dashboard product surface extended with Tasks, role homes, and Admin Panel.
 - The first Admin is provisioned out-of-band (seed/script or manual); no in-product first-run Admin wizard.
 - MFA enrollment is out of scope for this feature; password change on first login is in scope.
 - Export/share of reports and task results is out of scope; may be specified later with explicit grants.

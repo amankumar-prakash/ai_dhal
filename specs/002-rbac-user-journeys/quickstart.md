@@ -1,4 +1,4 @@
-# Quickstart Validation: SentryOps RBAC + live tools
+# Quickstart Validation: AI Dhal RBAC + live tools
 
 **Feature**: `002-rbac-user-journeys`  
 **Date**: 2026-08-05  

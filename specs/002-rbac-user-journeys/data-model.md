@@ -1,4 +1,4 @@
-# Data Model: SentryOps Role-Based User Journeys
+# Data Model: AI Dhal Role-Based User Journeys
 
 **Feature**: `002-rbac-user-journeys`  
 **Date**: 2026-08-05  

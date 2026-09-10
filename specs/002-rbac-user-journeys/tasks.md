@@ -1,4 +1,4 @@
-# Tasks: SentryOps Role-Based User Journeys (+ live tools)
+# Tasks: AI Dhal Role-Based User Journeys (+ live tools)
 
 **Input**: Design documents from `/specs/002-rbac-user-journeys/`
 

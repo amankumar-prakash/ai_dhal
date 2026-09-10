@@ -1,4 +1,4 @@
-# Specification Quality Checklist: SentryOps Role-Based User Journeys
+# Specification Quality Checklist: AI Dhal Role-Based User Journeys
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-03

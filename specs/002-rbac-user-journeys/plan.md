@@ -1,4 +1,4 @@
-# Implementation Plan: SentryOps Role-Based User Journeys (+ live tools)
+# Implementation Plan: AI Dhal Role-Based User Journeys (+ live tools)
 
 **Branch**: `002-rbac-user-journeys` | **Date**: 2026-08-05 | **Spec**: [spec.md](./spec.md)
 

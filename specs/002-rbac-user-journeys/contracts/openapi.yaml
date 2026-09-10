@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: SentryOps RBAC Journeys API
+  title: AI Dhal RBAC Journeys API
   version: 0.2.0
   description: >
     Post-clarify (2026-08-04): Admin may assign admin role; task notes/links;

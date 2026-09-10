@@ -1,7 +1,7 @@
 # Security-tooling Dockerfile patterns (optional)
 
 Use when the container needs OS-level security tools, browser automation, or
-matches a Kali-based worker fleet (e.g. ai_dhal, SentryOps-style stacks).
+matches a Kali-based worker fleet (e.g. AI Dhal / ai_dhal stacks).
 
 ## When to use Kali vs slim images
 
