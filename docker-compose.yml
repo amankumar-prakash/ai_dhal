@@ -41,6 +41,16 @@ services:
       HEXSTRIKE_BASE_URL: http://hexstrike_server:8005
       HEXSTRIKE_MCP_SCRIPT: /app/hexstrike/hexstrike_mcp.py
       HEXSTRIKE_STUB: ${HEXSTRIKE_STUB:-0}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/tmp/ai_dhal/jobs}
+      LLMLINGUA_ENABLED: ${LLMLINGUA_ENABLED:-1}
+      LLMLINGUA_DEVICE: ${LLMLINGUA_DEVICE:-cpu}
+      LLMLINGUA_MODEL: ${LLMLINGUA_MODEL:-microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank}
+      TOOL_SUMMARY_TOKENS: ${TOOL_SUMMARY_TOKENS:-800}
+      PHASE_ROLLUP_TOKENS: ${PHASE_ROLLUP_TOKENS:-1500}
+      JOB_CONTEXT_TOKENS: ${JOB_CONTEXT_TOKENS:-3000}
+      MAX_TOOLS_PER_JOB: ${MAX_TOOLS_PER_JOB:-24}
+      MAX_TOOLS_PER_PHASE: ${MAX_TOOLS_PER_PHASE:-8}
+      MAX_PHASE_LOOPS: ${MAX_PHASE_LOOPS:-2}
       # CAI disabled
       # CAI_WORKDIR: ${CAI_WORKDIR:-/cai}
       # CAI_STUB: ${CAI_STUB:-0}

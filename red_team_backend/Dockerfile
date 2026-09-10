@@ -1,24 +1,25 @@
-# Red team worker — Alpine Python (CAI disabled).
+# Red team worker — Debian slim (CAI disabled; LLMLingua-2 / torch need glibc).
 # Build from repo root: docker compose build red_team_backend
-FROM python:3.12-alpine
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    HEXSTRIKE_MCP_SCRIPT=/app/hexstrike/hexstrike_mcp.py
+    HEXSTRIKE_MCP_SCRIPT=/app/hexstrike/hexstrike_mcp.py \
+    ARTIFACT_ROOT=/tmp/ai_dhal/jobs \
+    HF_HOME=/var/cache/huggingface \
+    LLMLINGUA_DEVICE=cpu
 
 WORKDIR /app
 
-# curl for healthchecks; build deps only while installing wheels that need compile
-RUN apk add --no-cache curl ca-certificates \
-    && apk add --no-cache --virtual .build-deps \
-        gcc \
-        musl-dev \
-        libffi-dev \
-        openssl-dev
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/ai_dhal/jobs /var/cache/huggingface
 
 COPY red_team_backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && apk del .build-deps
+# CPU torch first (smaller), then the rest of the lockfile deps
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY red_team_backend/app ./app
 RUN mkdir -p /app/hexstrike

@@ -17,11 +17,19 @@ class WorkerSettings(BaseSettings):
     hexstrike_base_url: str = "http://localhost:8005"
     hexstrike_mcp_script: str = ""
     hexstrike_stub: str = "0"
-    # --- CAI disabled ---
-    # cai_workdir: str = ""
-    # cai_stub: str = "0"
-    # cai_chat_stub: str = "1"
-    # cai_agent_type: str = "redteam_agent"
+
+    # Orchestration / token budget
+    artifact_root: str = "/tmp/ai_dhal/jobs"
+    llmlingua_model: str = "microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank"
+    llmlingua_device: str = "cpu"
+    llmlingua_enabled: str = "1"
+    tool_summary_tokens: int = 800
+    phase_rollup_tokens: int = 1500
+    job_context_tokens: int = 3000
+    max_tools_per_job: int = 24
+    max_tools_per_phase: int = 8
+    max_phase_loops: int = 2
+    orchestration_timeout_seconds: int = 900
 
     @property
     def stub_llm(self) -> bool:
@@ -31,13 +39,9 @@ class WorkerSettings(BaseSettings):
     def stub_hexstrike(self) -> bool:
         return self.hexstrike_stub.strip() in {"1", "true", "True", "yes"}
 
-    # @property
-    # def stub_cai(self) -> bool:
-    #     return self.cai_stub.strip() in {"1", "true", "True", "yes"}
-
-    # @property
-    # def stub_cai_chat(self) -> bool:
-    #     return self.cai_chat_stub.strip() in {"1", "true", "True", "yes"}
+    @property
+    def use_llmlingua(self) -> bool:
+        return self.llmlingua_enabled.strip() in {"1", "true", "True", "yes"}
 
     def require_llm_for_live(self) -> None:
         if not self.stub_llm and not self.openai_api_key:
