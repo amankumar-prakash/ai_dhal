@@ -567,6 +567,7 @@ async def _run_live_agent(
     from langchain.agents import create_agent
     from langchain_mcp_adapters.tools import load_mcp_tools
 
+    from app.adapters.llm_model_factory import build_agent_model
     from app.adapters.mcp_client import create_mcp_client
 
     settings.require_llm_for_live()
@@ -574,7 +575,7 @@ async def _run_live_agent(
         os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
 
     job_id = str(job["job_id"])
-    model = f"openai:{settings.llm_model}"
+    model = build_agent_model(settings)
     client = create_mcp_client(settings)
     last_think = [0.0]
     async with client.session("hexstrike-ai") as session:
