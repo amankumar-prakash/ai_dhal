@@ -1,6 +1,7 @@
 """Single-tool agent — fresh chat, exactly one MCP tool bound."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from app.agents.prompt_loader import build_system_prompt, render_user_prompt
 from app.orchestration.artifact_store import JobArtifactStore
 from app.orchestration.compress import build_tool_summary
 from app.orchestration.phases import ToolSpec
+from app.orchestration.tool_output import parse_tool_output
 from app.settings import WorkerSettings
 
 log = logging.getLogger(__name__)
@@ -20,19 +22,6 @@ ProgressCb = Callable[[str, str, dict[str, Any] | None], Awaitable[None]]
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _stdout_from_output(output: Any) -> str:
-    if isinstance(output, dict):
-        return str(output.get("stdout") or output.get("content") or json.dumps(output))
-    text = str(output or "")
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return str(data.get("stdout") or text)
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return text
 
 
 def _tool_by_name(tools: list[Any], name: str) -> Any | None:
@@ -54,6 +43,69 @@ def _command_for_logical(spec: ToolSpec, target: str) -> str | None:
         )
         return f"httpx-toolkit -u {paths} -sc -title -silent"
     return None
+
+
+def _persist_result(
+    *,
+    store: JobArtifactStore,
+    phase: str,
+    tool_name: str,
+    target: str,
+    args: dict[str, Any],
+    stdout: str,
+    stderr: str,
+    success: bool,
+    exit_code: int,
+    command_summary: str,
+    settings: WorkerSettings,
+    started_at: str,
+    timed_out: bool = False,
+    partial_results: bool = False,
+) -> dict[str, Any]:
+    seq = store.next_seq()
+    store.write_raw(
+        seq=seq,
+        phase=phase,
+        tool_name=tool_name,
+        args=args if isinstance(args, dict) else {"raw": args},
+        stdout=stdout,
+        stderr=stderr,
+        success=success and not timed_out,
+        exit_code=exit_code,
+        command_summary=command_summary,
+        started_at=started_at,
+        finished_at=_now(),
+        timed_out=timed_out,
+        partial_results=partial_results or (timed_out and bool(stdout or stderr)),
+    )
+    summary = build_tool_summary(
+        job_id=store.job_id,
+        seq=seq,
+        phase=phase,
+        tool_name=tool_name,
+        target=target,
+        stdout=stdout,
+        stderr=stderr,
+        success=success and not timed_out,
+        timed_out=timed_out,
+        settings=settings,
+    )
+    store.write_summary(seq=seq, tool_name=tool_name, payload=summary)
+    return {
+        "tool_name": tool_name,
+        "args": args if isinstance(args, dict) else {},
+        "output": {
+            "success": success and not timed_out,
+            "stdout": stdout,
+            "stderr": stderr,
+            "command_summary": command_summary,
+            "timed_out": timed_out,
+            "partial_results": partial_results or (timed_out and bool(stdout or stderr)),
+            "exit_code": exit_code,
+        },
+        "summary": summary,
+        "skipped": False,
+    }
 
 
 async def run_tool_agent(
@@ -140,8 +192,34 @@ async def run_tool_agent(
 
     agent = create_agent(model, [mcp_tool], system_prompt=system)
     started = _now()
+    result: Any
     try:
         result = await agent.ainvoke({"messages": [{"role": "user", "content": user}]})
+    except asyncio.CancelledError:
+        # Job/wall cancel — still persist a failure artifact, then re-raise.
+        _persist_result(
+            store=store,
+            phase=phase,
+            tool_name=spec.logical_name,
+            target=target,
+            args=args_hint,
+            stdout="",
+            stderr="Cancelled before tool completed",
+            success=False,
+            exit_code=130,
+            command_summary=cmd or str(args_hint)[:500] or spec.logical_name,
+            settings=settings,
+            started_at=started,
+            timed_out=True,
+            partial_results=False,
+        )
+        if on_progress:
+            await on_progress(
+                "tool",
+                f"{spec.logical_name} cancelled — partial report saved",
+                {"phase": phase, "timed_out": True},
+            )
+        raise
     except Exception as exc:  # noqa: BLE001
         log.exception("tool agent %s failed", spec.logical_name)
         result = {"messages": [], "error": str(exc)}
@@ -149,61 +227,71 @@ async def run_tool_agent(
     from app.pipelines.task_discovery import extract_tool_calls
 
     calls = extract_tool_calls(result) if isinstance(result, dict) else []
-    stdout = ""
     args: dict[str, Any] = args_hint
+    stdout = ""
+    stderr = ""
+    timed_out = False
+    partial_results = False
     success = False
+    exit_code = 1
+
     if calls:
         last = calls[-1]
-        stdout = _stdout_from_output(last.get("output"))
+        parsed = parse_tool_output(last.get("output"))
+        stdout = parsed["stdout"]
+        stderr = parsed["stderr"]
+        timed_out = parsed["timed_out"]
+        partial_results = parsed["partial_results"]
+        success = parsed["success"]
+        exit_code = parsed["exit_code"]
         args = last.get("args") or args_hint
-        success = True
     elif isinstance(result, dict) and result.get("error"):
-        stdout = str(result["error"])
+        err = str(result["error"])
+        parsed = parse_tool_output(err)
+        stdout = parsed["stdout"]
+        stderr = parsed["stderr"] or err
+        timed_out = parsed["timed_out"]
+        partial_results = parsed["partial_results"]
+        success = False
+        exit_code = parsed["exit_code"]
     else:
-        # Agent may have answered without tool call — treat as failure
         messages = result.get("messages") if isinstance(result, dict) else []
         if messages:
             content = getattr(messages[-1], "content", None) or ""
-            stdout = str(content)[:2000]
+            parsed = parse_tool_output(content)
+            stdout = parsed["stdout"][:2000]
+            stderr = parsed["stderr"]
+            timed_out = parsed["timed_out"]
+            partial_results = parsed["partial_results"]
+            exit_code = parsed["exit_code"]
         success = False
+        if not timed_out:
+            exit_code = 1
 
     command_summary = cmd or str(args)[:500] or spec.logical_name
-    seq = store.next_seq()
-    store.write_raw(
-        seq=seq,
-        phase=phase,
-        tool_name=spec.logical_name,
-        args=args if isinstance(args, dict) else {"raw": args},
-        stdout=stdout,
-        success=success,
-        exit_code=0 if success else 1,
-        command_summary=command_summary,
-        started_at=started,
-        finished_at=_now(),
-    )
-    summary = build_tool_summary(
-        job_id=store.job_id,
-        seq=seq,
+    persisted = _persist_result(
+        store=store,
         phase=phase,
         tool_name=spec.logical_name,
         target=target,
+        args=args if isinstance(args, dict) else {"raw": args},
         stdout=stdout,
+        stderr=stderr,
         success=success,
+        exit_code=exit_code,
+        command_summary=command_summary,
         settings=settings,
+        started_at=started,
+        timed_out=timed_out,
+        partial_results=partial_results,
     )
-    store.write_summary(seq=seq, tool_name=spec.logical_name, payload=summary)
 
     if on_progress:
-        await on_progress("tool", f"{spec.logical_name} finished", {"phase": phase, "seq": seq})
+        suffix = " timed out (partial saved)" if timed_out else " finished"
+        await on_progress(
+            "tool",
+            f"{spec.logical_name}{suffix}",
+            {"phase": phase, "timed_out": timed_out, "seq": persisted["summary"].get("seq")},
+        )
 
-    return {
-        "tool_name": spec.logical_name,
-        "args": args if isinstance(args, dict) else {},
-        "output": {
-            "success": success,
-            "stdout": stdout,
-            "command_summary": command_summary,
-        },
-        "summary": summary,
-        "skipped": False,
-    }
+    return persisted

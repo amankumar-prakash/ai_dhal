@@ -6661,7 +6661,8 @@ def setup_logging():
 
 # Configuration (using existing API_PORT from top of file)
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0").lower() in ("1", "true", "yes", "y")
-COMMAND_TIMEOUT = 300  # 5 minutes default timeout
+# 0 = no per-command kill (wait until the process exits). Override via COMMAND_TIMEOUT.
+COMMAND_TIMEOUT = int(os.environ.get("COMMAND_TIMEOUT", "0"))
 CACHE_SIZE = 1000
 CACHE_TTL = 3600  # 1 hour
 
@@ -6785,7 +6786,8 @@ class EnhancedCommandExecutor:
 
     def __init__(self, command: str, timeout: int = COMMAND_TIMEOUT):
         self.command = command
-        self.timeout = timeout
+        # 0 / None = wait until the process exits (no kill timer)
+        self.timeout = timeout if timeout and int(timeout) > 0 else None
         self.process = None
         self.stdout_data = ""
         self.stderr_data = ""
@@ -6820,62 +6822,68 @@ class EnhancedCommandExecutor:
 
     def _show_progress(self, duration: float):
         """Show enhanced progress indication for long-running commands"""
-        if duration > 2:  # Show progress for commands taking more than 2 seconds
-            progress_chars = ModernVisualEngine.PROGRESS_STYLES['dots']
-            start = time.time()
-            i = 0
-            while self.process and self.process.poll() is None:
-                elapsed = time.time() - start
-                char = progress_chars[i % len(progress_chars)]
+        # duration is unused when no timeout; keep signature for callers.
+        _ = duration
+        progress_chars = ModernVisualEngine.PROGRESS_STYLES['dots']
+        start = time.time()
+        i = 0
+        while self.process and self.process.poll() is None:
+            elapsed = time.time() - start
+            char = progress_chars[i % len(progress_chars)]
 
-                # Calculate progress percentage (rough estimate)
+            if self.timeout:
                 progress_percent = min((elapsed / self.timeout) * 100, 99.9)
                 progress_fraction = progress_percent / 100
-
-                # Calculate ETA
                 eta = 0
-                if progress_percent > 5:  # Only show ETA after 5% progress
+                if progress_percent > 5:
                     eta = ((elapsed / progress_percent) * 100) - elapsed
+            else:
+                # No budget: indeterminate progress (pulse near mid-bar).
+                progress_percent = 50.0
+                progress_fraction = 0.5
+                eta = 0
 
-                # Calculate speed
-                bytes_processed = len(self.stdout_data) + len(self.stderr_data)
-                speed = f"{bytes_processed/elapsed:.0f} B/s" if elapsed > 0 else "0 B/s"
+            bytes_processed = len(self.stdout_data) + len(self.stderr_data)
+            speed = f"{bytes_processed/elapsed:.0f} B/s" if elapsed > 0 else "0 B/s"
 
-                # Update process manager with progress
-                ProcessManager.update_process_progress(
-                    self.process.pid,
-                    progress_fraction,
-                    f"Running for {elapsed:.1f}s",
-                    bytes_processed
-                )
+            ProcessManager.update_process_progress(
+                self.process.pid,
+                progress_fraction,
+                f"Running for {elapsed:.1f}s",
+                bytes_processed
+            )
 
-                # Create beautiful progress bar using ModernVisualEngine
-                progress_bar = ModernVisualEngine.render_progress_bar(
-                    progress_fraction,
-                    width=30,
-                    style='cyber',
-                    label=f"⚡ PROGRESS {char}",
-                    eta=eta,
-                    speed=speed
-                )
+            progress_bar = ModernVisualEngine.render_progress_bar(
+                progress_fraction,
+                width=30,
+                style='cyber',
+                label=f"⚡ PROGRESS {char}",
+                eta=eta,
+                speed=speed
+            )
 
-                logger.info(f"{progress_bar} | {elapsed:.1f}s | PID: {self.process.pid}")
-                time.sleep(0.8)
-                i += 1
-                if elapsed > self.timeout:
-                    break
+            logger.info(f"{progress_bar} | {elapsed:.1f}s | PID: {self.process.pid}")
+            time.sleep(0.8)
+            i += 1
+            if self.timeout and elapsed > self.timeout:
+                break
 
     def execute(self) -> Dict[str, Any]:
         """Execute the command with enhanced monitoring and output"""
         self.start_time = time.time()
 
         logger.info(f"🚀 EXECUTING: {self.command}")
-        logger.info(f"⏱️  TIMEOUT: {self.timeout}s | PID: Starting...")
+        timeout_label = f"{self.timeout}s" if self.timeout else "none"
+        logger.info(f"⏱️  TIMEOUT: {timeout_label} | PID: Starting...")
 
         try:
+            # stdin=DEVNULL is required: ProjectDiscovery tools (httpx, katana, …)
+            # treat an inherited open pipe as "more URLs on stdin" and hang forever
+            # when HexStrike is launched under supervisord (stdin is a pipe, never EOF).
             self.process = subprocess.Popen(
                 self.command,
                 shell=True,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -6897,11 +6905,11 @@ class EnhancedCommandExecutor:
             self.stderr_thread.start()
 
             # Start progress tracking in a separate thread
-            progress_thread = threading.Thread(target=self._show_progress, args=(self.timeout,))
+            progress_thread = threading.Thread(target=self._show_progress, args=(self.timeout or 0,))
             progress_thread.daemon = True
             progress_thread.start()
 
-            # Wait for the process to complete or timeout
+            # Wait for the process to complete (or timeout when configured)
             try:
                 self.return_code = self.process.wait(timeout=self.timeout)
                 self.end_time = time.time()
@@ -17277,7 +17285,7 @@ if __name__ == "__main__":
 {ModernVisualEngine.COLORS['BOLD']}│{ModernVisualEngine.COLORS['RESET']} {ModernVisualEngine.COLORS['CYBER_ORANGE']}🌐 Port:{ModernVisualEngine.COLORS['RESET']} {API_PORT}
 {ModernVisualEngine.COLORS['BOLD']}│{ModernVisualEngine.COLORS['RESET']} {ModernVisualEngine.COLORS['WARNING']}🔧 Debug Mode:{ModernVisualEngine.COLORS['RESET']} {DEBUG_MODE}
 {ModernVisualEngine.COLORS['BOLD']}│{ModernVisualEngine.COLORS['RESET']} {ModernVisualEngine.COLORS['ELECTRIC_PURPLE']}💾 Cache Size:{ModernVisualEngine.COLORS['RESET']} {CACHE_SIZE} | TTL: {CACHE_TTL}s
-{ModernVisualEngine.COLORS['BOLD']}│{ModernVisualEngine.COLORS['RESET']} {ModernVisualEngine.COLORS['TERMINAL_GRAY']}⏱️  Command Timeout:{ModernVisualEngine.COLORS['RESET']} {COMMAND_TIMEOUT}s
+{ModernVisualEngine.COLORS['BOLD']}│{ModernVisualEngine.COLORS['RESET']} {ModernVisualEngine.COLORS['TERMINAL_GRAY']}⏱️  Command Timeout:{ModernVisualEngine.COLORS['RESET']} {"none" if not COMMAND_TIMEOUT else f"{COMMAND_TIMEOUT}s"}
 {ModernVisualEngine.COLORS['BOLD']}│{ModernVisualEngine.COLORS['RESET']} {ModernVisualEngine.COLORS['MATRIX_GREEN']}✨ Enhanced Visual Engine:{ModernVisualEngine.COLORS['RESET']} Active
 {ModernVisualEngine.COLORS['MATRIX_GREEN']}{ModernVisualEngine.COLORS['BOLD']}╰─────────────────────────────────────────────────────────────────────────────╯{ModernVisualEngine.COLORS['RESET']}
 """

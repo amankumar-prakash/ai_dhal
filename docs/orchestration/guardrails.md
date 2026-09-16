@@ -38,7 +38,7 @@ Phase allowlists live in `orchestration/phases.py` (runtime) and are mirrored by
 | Max tools per job | 24 | Orchestrator budget |
 | Max tools per phase | 8 | Phase agent |
 | Max phase loops | 2 | Re-enter content/vuln |
-| Max wall time | 900s | Live agent timeout (existing) |
+| Max wall time | disabled (0) | Optional live agent timeout (`ORCHESTRATION_TIMEOUT_SECONDS`; 0 = none) |
 
 **Hard rule:** raw `stdout` from `*.raw.json` must not appear in any subsequent LLM message.
 
@@ -50,9 +50,10 @@ Phase allowlists live in `orchestration/phases.py` (runtime) and are mirrored by
 
 ## 6. Failure behavior
 
-- Tool failure → record error in `facts.errors`, continue next tool (do not halt job unless cancelled).
+- Tool failure **or per-tool timeout** (only if HexStrike `COMMAND_TIMEOUT` > 0) → record error in `facts.errors` (with `timed_out: true` when applicable), persist raw/summary artifacts (including partial stdout/stderr), **continue next tool**.
+- Job wall timeout (only if `ORCHESTRATION_TIMEOUT_SECONDS` > 0) → finalize Markdown `scan_report.md` from artifacts collected so far; still publish `scan_report` tool run for UI download.
 - Compressor failure → fall back to heuristic-only truncation to cap (still no raw dump).
-- Cancelled job → stop spawning tool agents (existing `JobCancelled`).
+- Cancelled job → stop spawning tool agents (existing `JobCancelled`); persist in-flight tool artifact first when possible.
 
 ## 7. Prompt-level do-nots
 

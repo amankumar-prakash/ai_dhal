@@ -158,11 +158,31 @@ def build_tool_summary(
     stdout: str,
     success: bool,
     settings: WorkerSettings | None = None,
+    timed_out: bool = False,
+    stderr: str = "",
 ) -> dict[str, Any]:
     settings = settings or get_settings()
-    facts = consolidate_facts(tool_name, target, stdout)
+    # Prefer stdout; keep stderr available for timeout / error notes.
+    combined = stdout or ""
+    if stderr and stderr not in combined:
+        combined = f"{combined}\n{stderr}".strip() if combined else stderr
+    facts = consolidate_facts(tool_name, target, combined)
+    if timed_out:
+        facts["errors"].append(
+            {
+                "tool": tool_name,
+                "note": "EST (estimated) time reached and scan halted before completion",
+                "timed_out": True,
+            }
+        )
+    elif not success and not any(facts[k] for k in ("open_ports", "paths", "urls", "exposures")) and not facts["http"]:
+        note = (stderr or stdout or "tool failed").strip()[:300]
+        if note and not any(
+            isinstance(e, dict) and e.get("note") == note for e in facts["errors"]
+        ):
+            facts["errors"].append({"tool": tool_name, "note": note, "timed_out": False})
     # Keep structured facts; compress leftover prose only.
-    prose = stdout if len(stdout or "") < 2000 else (stdout or "")[:2000]
+    prose = combined if len(combined or "") < 2000 else (combined or "")[:2000]
     # Prefer a short evidence string from facts rather than raw dump.
     evidence_bits: list[str] = []
     for port in facts["open_ports"][:20]:
@@ -183,7 +203,8 @@ def build_tool_summary(
         "seq": seq,
         "phase": phase,
         "tool_name": tool_name,
-        "success": success,
+        "success": success and not timed_out,
+        "timed_out": timed_out,
         "facts": facts,
         "evidence_compressed": compressed["compressed_prompt"],
         "token_stats": {

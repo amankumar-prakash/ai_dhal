@@ -32,7 +32,7 @@ def _estimated_duration_seconds(job: dict[str, Any], progress: list[dict[str, An
                 pass
     profile = str(job.get("profile") or "")
     if profile == "task-discovery":
-        return 900
+        return 1800
     return 300
 
 
@@ -492,7 +492,16 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
 
     linked = task.get("linked_job_id")
     if not linked:
-        return {"task": task, "job": None, "tools": [], "findings": [], "chain": None, "patches": [], "progress": []}
+        return {
+            "task": task,
+            "job": None,
+            "tools": [],
+            "findings": [],
+            "chain": None,
+            "patches": [],
+            "progress": [],
+            "scan_report": None,
+        }
 
     job_id = linked if isinstance(linked, UUID) else UUID(str(linked))
     try:
@@ -539,6 +548,18 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
     if job_out is not None:
         job_out["estimated_duration_seconds"] = _estimated_duration_seconds(job_out, progress)
 
+    scan_report: str | None = None
+    for tool in tools:
+        if str(tool.get("tool_name") or "") != "scan_report":
+            continue
+        raw = tool.get("raw_output") or {}
+        if isinstance(raw, dict) and raw.get("markdown"):
+            scan_report = str(raw["markdown"])
+            break
+        if isinstance(raw, dict) and raw.get("stdout"):
+            scan_report = str(raw["stdout"])
+            break
+
     return {
         "task": task,
         "job": job_out,
@@ -547,5 +568,6 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
         "chain": chain,
         "patches": patches,
         "progress": progress,
+        "scan_report": scan_report,
     }
 

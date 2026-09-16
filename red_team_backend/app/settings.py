@@ -29,7 +29,8 @@ class WorkerSettings(BaseSettings):
     max_tools_per_job: int = 24
     max_tools_per_phase: int = 8
     max_phase_loops: int = 2
-    orchestration_timeout_seconds: int = 900
+    # 0 = no job wall timeout (run until phases finish or the job is cancelled)
+    orchestration_timeout_seconds: int = 0
 
     @property
     def stub_llm(self) -> bool:
