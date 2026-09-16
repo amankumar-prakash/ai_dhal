@@ -624,7 +624,7 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
     host = asset.get("hostname") or target
     scan_id = scan.get("id")
     asset_id = asset.get("id")
-    estimate = 30 if _use_stub(settings) else 900
+    estimate = 30 if _use_stub(settings) else 1800
     await _emit_progress(
         reporter,
         str(job_id),
@@ -698,8 +698,30 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
             stdout = _stdout_from_output(call.get("output"))
             args = call.get("args") or {}
             summary = str(args) if args else tool_name
-            if isinstance(call.get("output"), dict) and call["output"].get("command_summary"):
-                summary = str(call["output"]["command_summary"])
+            out = call.get("output") if isinstance(call.get("output"), dict) else {}
+            if out.get("command_summary"):
+                summary = str(out["command_summary"])
+            timed_out = bool(out.get("timed_out"))
+            exit_code = out.get("exit_code")
+            if exit_code is None:
+                if timed_out:
+                    exit_code = -1
+                elif out.get("success") is False:
+                    exit_code = 1
+                else:
+                    exit_code = 0
+            raw_output: dict[str, Any] = {
+                "args": args,
+                "stdout": stdout[:8000],
+                "timed_out": timed_out,
+            }
+            if out.get("stderr"):
+                raw_output["stderr"] = str(out["stderr"])[:4000]
+            if out.get("partial_results"):
+                raw_output["partial_results"] = True
+            if out.get("markdown"):
+                raw_output["markdown"] = str(out["markdown"])
+                raw_output["format"] = "markdown"
 
             await reporter.post_tool_run(
                 {
@@ -707,13 +729,12 @@ async def run(job: dict[str, Any], settings: WorkerSettings | None = None) -> No
                     "team": "red",
                     "tool_name": tool_name,
                     "command_summary": summary[:500],
-                    "exit_code": 0,
-                    "raw_output": {
-                        "args": args,
-                        "stdout": stdout[:8000],
-                    },
+                    "exit_code": exit_code,
+                    "raw_output": raw_output,
                 }
             )
+            if tool_name == "scan_report":
+                continue
             sequence += 1
             if chain_id:
                 await reporter.post_chain_step(

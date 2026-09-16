@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from app.orchestration.artifact_store import JobArtifactStore, empty_facts, merge_facts
 from app.orchestration.compress import (
     build_phase_rollup,
@@ -16,6 +14,8 @@ from app.orchestration.compress import (
     update_job_context,
 )
 from app.orchestration.phases import RECON_PHASES, default_phase_order
+from app.orchestration.report import finalize_scan_report, render_scan_report_markdown
+from app.orchestration.tool_output import parse_tool_output
 from app.settings import WorkerSettings
 
 
@@ -123,8 +123,78 @@ def test_phase_registry_covers_default_recon() -> None:
     assert "gobuster_scan" in names
 
 
-@pytest.mark.asyncio
-async def test_run_recon_importable() -> None:
+def test_parse_tool_output_preserves_partial_timeout() -> None:
+    payload = {
+        "stdout": "80/tcp open http\n",
+        "stderr": "",
+        "timed_out": True,
+        "partial_results": True,
+        "return_code": -1,
+        "success": True,
+    }
+    parsed = parse_tool_output(payload)
+    assert parsed["timed_out"] is True
+    assert parsed["partial_results"] is True
+    assert "80/tcp open http" in parsed["stdout"]
+    assert parsed["success"] is False
+
+
+def test_build_tool_summary_records_timeout_error() -> None:
+    summary = build_tool_summary(
+        job_id="j",
+        seq=2,
+        phase="surface",
+        tool_name="httpx_toolkit",
+        target="http://t",
+        stdout="",
+        success=False,
+        timed_out=True,
+        settings=WorkerSettings(llmlingua_enabled="0"),
+    )
+    assert summary["timed_out"] is True
+    assert any(e.get("timed_out") for e in summary["facts"]["errors"])
+
+
+def test_scan_report_markdown_includes_timeouts(tmp_path: Path) -> None:
+    store = JobArtifactStore(tmp_path, "job-report")
+    ctx = store.read_context()
+    ctx["target"] = "http://juice.lab:3000"
+    ctx["scan_host"] = "juice.lab"
+    store.write_context(ctx)
+    seq = store.next_seq()
+    store.write_raw(
+        seq=seq,
+        phase="surface",
+        tool_name="httpx_toolkit",
+        args={},
+        stdout="partial line",
+        success=False,
+        exit_code=-1,
+        timed_out=True,
+        partial_results=True,
+        command_summary="httpx-toolkit …",
+    )
+    summary = build_tool_summary(
+        job_id="job-report",
+        seq=seq,
+        phase="surface",
+        tool_name="httpx_toolkit",
+        target="http://juice.lab:3000",
+        stdout="partial line",
+        success=False,
+        timed_out=True,
+        settings=WorkerSettings(llmlingua_enabled="0"),
+    )
+    store.write_summary(seq=seq, tool_name="httpx_toolkit", payload=summary)
+    md = finalize_scan_report(store, timed_out=True, timeout_note="wall timeout")
+    assert "Scan report" in md
+    assert "TIMEOUT" in md or "timeout" in md.lower()
+    assert (store.root / "scan_report.md").is_file()
+    assert "wall timeout" in (store.read_context()["facts"]["errors"][-1]["note"])
+    assert render_scan_report_markdown(store).startswith("# Scan report")
+
+
+def test_run_recon_importable() -> None:
     from app.orchestration import run_recon
 
     assert callable(run_recon)

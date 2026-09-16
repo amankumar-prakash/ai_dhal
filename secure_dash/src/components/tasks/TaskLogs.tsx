@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, ScrollText } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, ScrollText } from "lucide-react";
 import { absTime, duration, relTime } from "@/lib/security";
 import { formatRawOutput, kindTone, progressLines, runHeadline } from "@/lib/task-logs";
 import type { Task } from "@/lib/rbac-types";
@@ -7,10 +7,37 @@ import type { TaskResults, TaskToolRun } from "@/lib/tasks-api";
 import { EmptyState, ErrorBanner, Eyebrow, Panel } from "@/components/sd/primitives";
 import { useTaskClock } from "@/components/tasks/TaskRunProgress";
 
+function scanReportMarkdown(results: TaskResults | undefined): string | null {
+  if (results?.scan_report?.trim()) return results.scan_report;
+  const tool = results?.tools?.find((t) => t.tool_name === "scan_report");
+  const raw = tool?.raw_output;
+  if (raw && typeof raw === "object") {
+    const md = (raw as Record<string, unknown>).markdown;
+    if (typeof md === "string" && md.trim()) return md;
+    const stdout = (raw as Record<string, unknown>).stdout;
+    if (typeof stdout === "string" && stdout.trim()) return stdout;
+  }
+  return null;
+}
+
+function downloadMarkdown(filename: string, markdown: string) {
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function ToolRunRow({ tool }: { tool: TaskToolRun }) {
   const [open, setOpen] = useState(false);
   const raw = formatRawOutput(tool.raw_output);
   const failed = tool.exit_code != null && tool.exit_code !== 0;
+  const timedOut =
+    tool.raw_output &&
+    typeof tool.raw_output === "object" &&
+    Boolean((tool.raw_output as Record<string, unknown>).timed_out);
   const ran =
     tool.started_at && tool.finished_at ? duration(tool.started_at, tool.finished_at) : null;
 
@@ -36,9 +63,11 @@ function ToolRunRow({ tool }: { tool: TaskToolRun }) {
         </div>
         <span
           className="mono micro"
-          style={{ color: failed ? "var(--accent-ember)" : "var(--text-secondary)" }}
+          style={{
+            color: timedOut || failed ? "var(--accent-ember)" : "var(--text-secondary)",
+          }}
         >
-          {tool.exit_code == null ? "running" : `exit ${tool.exit_code}`}
+          {tool.exit_code == null ? "running" : timedOut ? "timeout" : `exit ${tool.exit_code}`}
         </span>
       </button>
       {open && (
@@ -66,6 +95,7 @@ export function TaskLogs({
 }) {
   const job = results?.job ?? null;
   const tools = results?.tools ?? [];
+  const report = useMemo(() => scanReportMarkdown(results), [results]);
   const stopped = task.status === "blocked" || job?.status === "cancelled";
   const headline = runHeadline({
     taskStatus: task.status,
@@ -110,13 +140,31 @@ export function TaskLogs({
             )}
             <span className="text-sm">{headline.label}</span>
           </div>
-          {started && (
-            <span className="mono micro" style={{ color: "var(--text-muted)" }}>
-              {absTime(started)}
-              {finished && !headline.live ? ` → ${absTime(finished)}` : ""}
-              {` · ${clock.elapsedLabel}`}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {report && (
+              <button
+                type="button"
+                onClick={() =>
+                  downloadMarkdown(`scan-report-${task.id.slice(0, 8)}.md`, report)
+                }
+                className="inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-sm"
+                style={{
+                  border: "1px solid var(--border-hairline)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <Download size={14} strokeWidth={1.5} />
+                Download scan report
+              </button>
+            )}
+            {started && (
+              <span className="mono micro" style={{ color: "var(--text-muted)" }}>
+                {absTime(started)}
+                {finished && !headline.live ? ` → ${absTime(finished)}` : ""}
+                {` · ${clock.elapsedLabel}`}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
@@ -177,6 +225,35 @@ export function TaskLogs({
           )}
         </div>
       </Panel>
+
+      {report && (
+        <Panel>
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3"
+            style={{ borderColor: "var(--border-hairline)" }}
+          >
+            <Eyebrow>Scan report (summary)</Eyebrow>
+            <button
+              type="button"
+              onClick={() => downloadMarkdown(`scan-report-${task.id.slice(0, 8)}.md`, report)}
+              className="inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-sm"
+              style={{
+                border: "1px solid var(--border-hairline)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <Download size={14} strokeWidth={1.5} />
+              Download .md
+            </button>
+          </div>
+          <pre
+            className="mono max-h-[360px] overflow-auto p-4 text-[12px] leading-5 whitespace-pre-wrap"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {report}
+          </pre>
+        </Panel>
+      )}
 
       <Panel>
         <div

@@ -141,7 +141,8 @@ logger = logging.getLogger(__name__)
 
 # Default configuration
 DEFAULT_HEXSTRIKE_SERVER = "http://127.0.0.1:8888"  # Default HexStrike server URL
-DEFAULT_REQUEST_TIMEOUT = 300  # 5 minutes default timeout for API requests
+# 0 = no HTTP timeout (wait for HexStrike tool completion). Override via --timeout.
+DEFAULT_REQUEST_TIMEOUT = 0
 MAX_RETRIES = 3  # Maximum number of retries for connection attempts
 
 class HexStrikeClient:
@@ -153,10 +154,10 @@ class HexStrikeClient:
 
         Args:
             server_url: URL of the HexStrike AI API Server
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (0 / None = wait indefinitely)
         """
         self.server_url = server_url.rstrip("/")
-        self.timeout = timeout
+        self.timeout = timeout if timeout and int(timeout) > 0 else None
         self.session = requests.Session()
 
         # Try to connect to server with retries
@@ -5419,7 +5420,7 @@ def parse_args():
     parser.add_argument("--server", type=str, default=DEFAULT_HEXSTRIKE_SERVER,
                       help=f"HexStrike AI API server URL (default: {DEFAULT_HEXSTRIKE_SERVER})")
     parser.add_argument("--timeout", type=int, default=DEFAULT_REQUEST_TIMEOUT,
-                      help=f"Request timeout in seconds (default: {DEFAULT_REQUEST_TIMEOUT})")
+                      help="Request timeout in seconds (0 = none / wait indefinitely)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     return parser.parse_args()
 

@@ -10,6 +10,7 @@ from app.orchestration.artifact_store import JobArtifactStore, empty_facts
 from app.orchestration.compress import update_job_context
 from app.orchestration.phase_agent import run_phase
 from app.orchestration.phases import RECON_PHASES, phase_by_name
+from app.orchestration.report import finalize_scan_report, scan_report_tool_call
 from app.reporters.api_reporter import ApiReporter
 from app.settings import WorkerSettings
 
@@ -30,6 +31,9 @@ async def run_recon(
 
     Returns the same list[dict] shape as task_discovery.extract_tool_calls so the
     existing reporting loop can post tool runs / findings unchanged.
+
+    Per-tool HexStrike failures continue to the next tool. Optional job wall
+    timeout (ORCHESTRATION_TIMEOUT_SECONDS > 0) still finalizes a partial report.
     """
     from langchain_mcp_adapters.tools import load_mcp_tools
 
@@ -64,15 +68,15 @@ async def run_recon(
         await _emit_progress(reporter, job_id, kind, message, meta)
 
     client = create_mcp_client(settings)
+    all_calls: list[dict[str, Any]] = []
+    job_timed_out = False
 
-    async def _drive() -> list[dict[str, Any]]:
-        all_calls: list[dict[str, Any]] = []
+    async def _drive() -> None:
         async with client.session("hexstrike-ai") as session:
             mcp_tools = await load_mcp_tools(session)
             if not mcp_tools:
                 raise RuntimeError("HexStrike MCP returned no tools")
 
-            # Keep optional ferox available for gobuster fallback inside tool_agent.
             phase_queue = [p.name for p in RECON_PHASES]
             loops_used = 0
 
@@ -95,33 +99,61 @@ async def run_recon(
                 )
                 all_calls.extend(calls)
 
-                ctx = store.read_context()
-                ctx = update_job_context(ctx, rollup=rollup, settings=settings)
-                store.write_context(ctx)
+                ctx_local = store.read_context()
+                ctx_local = update_job_context(ctx_local, rollup=rollup, settings=settings)
+                store.write_context(ctx_local)
 
-                # Optional single loop: after vuln, re-enter content once if hints + budget.
                 if (
                     phase_name == "vuln"
                     and loops_used < settings.max_phase_loops
                     and rollup.get("next_hints")
-                    and int((ctx.get("budget") or {}).get("tools_used") or 0)
+                    and int((ctx_local.get("budget") or {}).get("tools_used") or 0)
                     < settings.max_tools_per_job
                 ):
-                    # Conservative: do not auto-loop by default unless MAX_PHASE_LOOPS > 0
-                    # and there are paths worth re-probing — still require unused budget.
-                    if settings.max_phase_loops > 0 and (ctx.get("facts") or {}).get("paths"):
+                    if settings.max_phase_loops > 0 and (ctx_local.get("facts") or {}).get("paths"):
                         loops_used += 1
-                        budget = dict(ctx.get("budget") or {})
+                        budget = dict(ctx_local.get("budget") or {})
                         budget["phase_loops_used"] = loops_used
-                        ctx["budget"] = budget
-                        ctx["loop_count"] = loops_used
-                        store.write_context(ctx)
-                        # Auto-loop disabled for predictability in v1 — leave hook documented.
+                        ctx_local["budget"] = budget
+                        ctx_local["loop_count"] = loops_used
+                        store.write_context(ctx_local)
                         log.info(
                             "loop budget available (%s) but auto-loop deferred in v1",
                             loops_used,
                         )
 
-        return all_calls
+    wall = int(settings.orchestration_timeout_seconds or 0)
+    try:
+        if wall > 0:
+            await asyncio.wait_for(_drive(), timeout=wall)
+        else:
+            await _drive()
+    except asyncio.TimeoutError:
+        job_timed_out = True
+        log.warning(
+            "orchestration wall timeout after %ss for job %s — finalizing partial report",
+            wall,
+            job_id,
+        )
+        await on_progress(
+            "status",
+            f"Job wall time ({wall}s) reached — saving scan report from completed tools",
+            {"timed_out": True},
+        )
 
-    return await asyncio.wait_for(_drive(), timeout=settings.orchestration_timeout_seconds)
+    markdown = finalize_scan_report(
+        store,
+        timed_out=job_timed_out,
+        timeout_note=(
+            f"EST/job wall time reached after {wall}s; scan halted before completion"
+            if job_timed_out
+            else None
+        ),
+    )
+    all_calls.append(scan_report_tool_call(markdown, timed_out=job_timed_out))
+    await on_progress(
+        "status",
+        "Scan report ready (Markdown)",
+        {"report": "scan_report.md", "timed_out": job_timed_out, "bytes": len(markdown.encode())},
+    )
+    return all_calls

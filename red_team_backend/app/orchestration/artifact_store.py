@@ -109,6 +109,8 @@ class JobArtifactStore:
         command_summary: str = "",
         started_at: str | None = None,
         finished_at: str | None = None,
+        timed_out: bool = False,
+        partial_results: bool = False,
     ) -> Path:
         payload = {
             "schema_version": 1,
@@ -124,6 +126,8 @@ class JobArtifactStore:
             "stdout": stdout,
             "stderr": stderr,
             "command_summary": command_summary or tool_name,
+            "timed_out": timed_out,
+            "partial_results": partial_results,
         }
         path = self.tools_dir / f"{seq:03d}_{tool_name}.raw.json"
         return self._write_json(path, payload)
@@ -141,3 +145,26 @@ class JobArtifactStore:
         if not path.is_file():
             return None
         return self.read_json(path)
+
+    def list_summaries(self) -> list[dict[str, Any]]:
+        paths = sorted(self.tools_dir.glob("*.summary.json"))
+        return [self.read_json(p) for p in paths]
+
+    def list_raw(self) -> list[dict[str, Any]]:
+        paths = sorted(self.tools_dir.glob("*.raw.json"))
+        return [self.read_json(p) for p in paths]
+
+    def list_rollups(self) -> list[dict[str, Any]]:
+        paths = sorted(self.phases_dir.glob("*.rollup.json"))
+        return [self.read_json(p) for p in paths]
+
+    def write_report(self, markdown: str) -> Path:
+        path = self.root / "scan_report.md"
+        path.write_text(markdown, encoding="utf-8")
+        return path
+
+    def read_report(self) -> str | None:
+        path = self.root / "scan_report.md"
+        if not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8")
