@@ -11,3 +11,8 @@ mcp
 requests
 pytest
 pytest-asyncio
+llmlingua>=0.2.2
+transformers>=4.36.0
+# Install torch from the CPU index in the Dockerfile for smaller images:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1.0

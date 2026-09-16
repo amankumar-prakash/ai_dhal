@@ -564,55 +564,10 @@ async def _run_live_agent(
     settings: WorkerSettings,
     reporter: ApiReporter | None = None,
 ) -> list[dict[str, Any]]:
-    from langchain.agents import create_agent
-    from langchain_mcp_adapters.tools import load_mcp_tools
+    """Hierarchical phase→tool agents with artifact persistence + compression."""
+    from app.orchestration import run_recon
 
-    from app.adapters.llm_model_factory import build_agent_model
-    from app.adapters.mcp_client import create_mcp_client
-
-    settings.require_llm_for_live()
-    if settings.openai_api_key:
-        os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
-
-    job_id = str(job["job_id"])
-    model = build_agent_model(settings)
-    client = create_mcp_client(settings)
-    last_think = [0.0]
-    async with client.session("hexstrike-ai") as session:
-        tools = select_recon_tools(await load_mcp_tools(session))
-        if not tools:
-            raise RuntimeError("HexStrike MCP returned no recon tools")
-        agent = create_agent(model, tools, system_prompt=agent_system_prompt())
-        prompt = build_agent_prompt(job, target)
-
-        async def _consume() -> Any:
-            messages: list[Any] = []
-            async for chunk in agent.astream(
-                {"messages": [{"role": "user", "content": prompt}]},
-                stream_mode="values",
-            ):
-                incoming = _chunk_messages(chunk)
-                prev = len(messages)
-                messages = merge_agent_messages(messages, incoming)
-                new_msgs = messages[prev:]
-                if reporter is not None:
-                    await _ensure_not_cancelled(reporter, job_id)
-                    if new_msgs:
-                        await _emit_from_chunk(
-                            {"messages": new_msgs}, reporter, job_id, last_think
-                        )
-            if reporter is not None and messages:
-                last = messages[-1]
-                tool_calls = getattr(last, "tool_calls", None)
-                if tool_calls is None and isinstance(last, dict):
-                    tool_calls = last.get("tool_calls")
-                text = _msg_text(last)
-                if text and not tool_calls:
-                    await _emit_progress(reporter, job_id, "thinking", text[:4000])
-            return {"messages": messages}
-
-        result = await asyncio.wait_for(_consume(), timeout=900)
-    return extract_tool_calls(result)
+    return await run_recon(job, target, settings, reporter)
 
 
 def _stub_calls(target: str) -> list[dict[str, Any]]:
