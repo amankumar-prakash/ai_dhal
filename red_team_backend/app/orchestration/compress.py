@@ -6,12 +6,22 @@ import re
 from typing import Any
 
 from app.orchestration.artifact_store import empty_facts
+from app.orchestration.model_context import (
+    count_tokens,
+    cut_to_tokens,
+    llm_budget,
+    split_token_chunks,
+)
 from app.settings import WorkerSettings, get_settings
 
 log = logging.getLogger(__name__)
 
 _compressor = None
 _compressor_failed = False
+
+# BERT-based LLMLingua-2 max position embeddings is 512; stay under that per chunk.
+_LINGUA_CHUNK_TOKENS = 384
+_FORCE_TOKENS = ["\n"]
 
 _HTTP_LINE_RE = re.compile(
     r"(?P<url>https?://\S+)\s*(?:\[(?P<status>\d{3})\])?\s*(?:\[(?P<title>[^\]]*)\])?",
@@ -20,14 +30,11 @@ _HTTP_LINE_RE = re.compile(
 
 
 def estimate_tokens(text: str) -> int:
-    # Rough 4-chars/token estimate; good enough for caps without tiktoken dependency.
-    return max(1, len(text or "") // 4) if text else 0
+    return count_tokens(text or "")
 
 
 def truncate_to_tokens(text: str, cap: int) -> str:
-    if estimate_tokens(text) <= cap:
-        return text
-    return (text or "")[: max(0, cap * 4)]
+    return cut_to_tokens(text or "", cap)
 
 
 def consolidate_facts(tool_name: str, target: str, stdout: str) -> dict[str, Any]:
@@ -105,11 +112,49 @@ def _get_compressor(settings: WorkerSettings):
         return None
 
 
+def _split_chunks(text: str, chunk_tokens: int = _LINGUA_CHUNK_TOKENS) -> list[str]:
+    return split_token_chunks(text, chunk_tokens)
+
+
+def _lingua_compress_chunk(compressor: Any, chunk: str, target_token: int) -> str:
+    result = compressor.compress_prompt(
+        chunk,
+        rate=None,
+        target_token=max(1, target_token),
+        force_tokens=list(_FORCE_TOKENS),
+        drop_consecutive=True,
+    )
+    return result.get("compressed_prompt") or chunk
+
+
+def _lingua_compress(compressor: Any, text: str, target_token: int) -> str:
+    chunks = _split_chunks(text)
+    if not chunks:
+        return text
+    origin = estimate_tokens(text) or 1
+    if len(chunks) == 1:
+        return _lingua_compress_chunk(compressor, chunks[0], target_token)
+    pieces: list[str] = []
+    for chunk in chunks:
+        chunk_tokens = estimate_tokens(chunk) or 1
+        chunk_target = max(1, int(target_token * chunk_tokens / origin))
+        if chunk_tokens <= chunk_target:
+            pieces.append(chunk)
+            continue
+        try:
+            pieces.append(_lingua_compress_chunk(compressor, chunk, chunk_target))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("LLMLingua-2 chunk compress failed, keeping heuristic slice: %s", exc)
+            pieces.append(truncate_to_tokens(chunk, chunk_target))
+    return "\n".join(pieces)
+
+
 def compress_text(text: str, *, target_token: int, settings: WorkerSettings | None = None) -> dict[str, Any]:
     settings = settings or get_settings()
     original = text or ""
+    cap = max(1, int(target_token or 1))
     origin = estimate_tokens(original)
-    if origin <= target_token:
+    if origin <= cap:
         return {
             "compressed_prompt": original,
             "origin_tokens": origin,
@@ -120,32 +165,46 @@ def compress_text(text: str, *, target_token: int, settings: WorkerSettings | No
     compressor = _get_compressor(settings)
     if compressor is not None:
         try:
-            result = compressor.compress_prompt(
-                original,
-                rate=None,
-                target_token=target_token,
-                force_tokens=["\n", "/", ":", ".", "?", "!"],
-                drop_consecutive=True,
-            )
-            compressed = result.get("compressed_prompt") or truncate_to_tokens(original, target_token)
+            compressed = _lingua_compress(compressor, original, cap)
+            compressed = truncate_to_tokens(compressed, cap)
             return {
                 "compressed_prompt": compressed,
-                "origin_tokens": int(result.get("origin_tokens") or origin),
-                "compressed_tokens": int(
-                    result.get("compressed_tokens") or estimate_tokens(compressed)
-                ),
+                "origin_tokens": origin,
+                "compressed_tokens": estimate_tokens(compressed),
                 "method": "llmlingua2",
             }
         except Exception as exc:  # noqa: BLE001
             log.warning("LLMLingua-2 compress failed, truncating: %s", exc)
 
-    truncated = truncate_to_tokens(original, target_token)
+    truncated = truncate_to_tokens(original, cap)
     return {
         "compressed_prompt": truncated,
         "origin_tokens": origin,
         "compressed_tokens": estimate_tokens(truncated),
         "method": "heuristic_truncate",
     }
+
+
+def compress_for_llm(
+    text: str,
+    *,
+    reserved_tokens: int,
+    settings: WorkerSettings | None = None,
+) -> dict[str, Any]:
+    """Compress `text` so reserved + result stays at or under 80% of the model window."""
+    settings = settings or get_settings()
+    budget = llm_budget(settings, reserved_tokens)
+    result = compress_text(text, target_token=budget["remaining"], settings=settings)
+    result.update(
+        {
+            "model": budget["model"],
+            "window": budget["window"],
+            "trigger": budget["trigger"],
+            "reserved": budget["reserved"],
+            "cap": budget["remaining"],
+        }
+    )
+    return result
 
 
 def build_tool_summary(

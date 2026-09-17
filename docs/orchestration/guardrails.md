@@ -29,9 +29,12 @@ Phase allowlists live in `orchestration/phases.py` (runtime) and are mirrored by
 
 ## 4. Context / token guardrails
 
+Two independent budgets apply:
+
 | Cap | Default | Applies to |
 |-----|---------|------------|
-| Tool summary | 800 tokens | `*.summary.json` evidence + narrative |
+| LLM call trigger | **80% of the live model window** | System + user + tool schema + in-turn tool observation |
+| Tool summary | 800 tokens | `*.summary.json` evidence + narrative (storage / next-agent facts) |
 | Phase rollup | 1500 tokens | `phases/*.rollup.json` |
 | Job context | 3000 tokens | `job.context.json` |
 | Tools bound per LLM call | **1** | Tool agents |
@@ -39,6 +42,10 @@ Phase allowlists live in `orchestration/phases.py` (runtime) and are mirrored by
 | Max tools per phase | 8 | Phase agent |
 | Max phase loops | 2 | Re-enter content/vuln |
 | Max wall time | disabled (0) | Optional live agent timeout (`ORCHESTRATION_TIMEOUT_SECONDS`; 0 = none) |
+
+Live default: `LLM_MODEL=gpt-4o-mini` → **128,000** token window → compress trigger **102,400**. Override with `LLM_CONTEXT_WINDOW` and/or `LLM_COMPRESS_TRIGGER_RATIO` (default `0.8`).
+
+LLM-bound overflow (especially raw tool stdout re-entering the same agent turn) is compressed with LLMLingua-2 down to `trigger - reserved`, then hard-truncated. Raw `*.raw.json` always stores the uncompressed tool output.
 
 **Hard rule:** raw `stdout` from `*.raw.json` must not appear in any subsequent LLM message.
 

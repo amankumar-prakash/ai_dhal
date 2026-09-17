@@ -4,13 +4,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Awaitable
 
 from app.adapters.llm_model_factory import build_agent_model
 from app.agents.prompt_loader import build_system_prompt, render_user_prompt
 from app.orchestration.artifact_store import JobArtifactStore
-from app.orchestration.compress import build_tool_summary
+from app.orchestration.compress import build_tool_summary, compress_for_llm, estimate_tokens
+from app.orchestration.model_context import tool_schema_text
 from app.orchestration.phases import ToolSpec
 from app.orchestration.tool_output import parse_tool_output
 from app.settings import WorkerSettings
@@ -45,6 +47,111 @@ def _command_for_logical(spec: ToolSpec, target: str) -> str | None:
     return None
 
 
+def _observation_text(result: Any) -> str:
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result
+    try:
+        return json.dumps(result, default=str)
+    except TypeError:
+        return str(result)
+
+
+@dataclass
+class ToolCapture:
+    """Filled when the wrapped MCP tool runs, before the observation re-enters the LLM."""
+
+    seq: int | None = None
+    args: dict[str, Any] | None = None
+    parsed: dict[str, Any] | None = None
+    raw_text: str = ""
+    llm_compress: dict[str, Any] | None = None
+    summary_written: bool = False
+    extras: dict[str, Any] = field(default_factory=dict)
+
+
+def wrap_mcp_tool(
+    inner: Any,
+    *,
+    store: JobArtifactStore,
+    tool_name: str,
+    phase: str,
+    settings: WorkerSettings,
+    reserved_tokens: int,
+    capture: ToolCapture,
+    command_summary: str,
+    started_at: str,
+) -> Any:
+    """Persist raw tool output, then return a budget-capped observation to the LLM."""
+    from langchain_core.tools import StructuredTool
+
+    async def _run(**kwargs: Any) -> str:
+        payload = kwargs
+        if hasattr(inner, "ainvoke"):
+            result = await inner.ainvoke(payload)
+        else:
+            result = inner.invoke(payload)
+        raw_text = _observation_text(result)
+        parsed = parse_tool_output(result)
+        stdout = parsed.get("stdout") or raw_text
+        stderr = parsed.get("stderr") or ""
+        timed_out = bool(parsed.get("timed_out"))
+        partial = bool(parsed.get("partial_results"))
+        success = bool(parsed.get("success"))
+        exit_code = int(parsed.get("exit_code") if parsed.get("exit_code") is not None else 1)
+        seq = store.next_seq()
+        store.write_raw(
+            seq=seq,
+            phase=phase,
+            tool_name=tool_name,
+            args=payload if isinstance(payload, dict) else {"raw": payload},
+            stdout=stdout,
+            stderr=stderr,
+            success=success and not timed_out,
+            exit_code=exit_code,
+            command_summary=command_summary or tool_name,
+            started_at=started_at,
+            finished_at=_now(),
+            timed_out=timed_out,
+            partial_results=partial or (timed_out and bool(stdout or stderr)),
+        )
+        compressed = compress_for_llm(raw_text, reserved_tokens=reserved_tokens, settings=settings)
+        capture.seq = seq
+        capture.args = payload if isinstance(payload, dict) else {"raw": payload}
+        capture.parsed = {
+            **parsed,
+            "stdout": stdout,
+            "stderr": stderr,
+            "timed_out": timed_out,
+            "partial_results": partial or (timed_out and bool(stdout or stderr)),
+            "success": success and not timed_out,
+            "exit_code": exit_code,
+        }
+        capture.raw_text = raw_text
+        capture.llm_compress = compressed
+        if compressed.get("method") != "passthrough":
+            log.info(
+                "compressed %s observation for LLM: method=%s origin=%s compressed=%s trigger=%s",
+                tool_name,
+                compressed.get("method"),
+                compressed.get("origin_tokens"),
+                compressed.get("compressed_tokens"),
+                compressed.get("trigger"),
+            )
+        return compressed["compressed_prompt"]
+
+    tool_kwargs: dict[str, Any] = {
+        "name": getattr(inner, "name", None) or tool_name,
+        "description": getattr(inner, "description", None) or tool_name,
+        "coroutine": _run,
+    }
+    schema = getattr(inner, "args_schema", None)
+    if schema is not None:
+        tool_kwargs["args_schema"] = schema
+    return StructuredTool.from_function(**tool_kwargs)
+
+
 def _persist_result(
     *,
     store: JobArtifactStore,
@@ -61,23 +168,27 @@ def _persist_result(
     started_at: str,
     timed_out: bool = False,
     partial_results: bool = False,
+    seq: int | None = None,
+    write_raw: bool = True,
 ) -> dict[str, Any]:
-    seq = store.next_seq()
-    store.write_raw(
-        seq=seq,
-        phase=phase,
-        tool_name=tool_name,
-        args=args if isinstance(args, dict) else {"raw": args},
-        stdout=stdout,
-        stderr=stderr,
-        success=success and not timed_out,
-        exit_code=exit_code,
-        command_summary=command_summary,
-        started_at=started_at,
-        finished_at=_now(),
-        timed_out=timed_out,
-        partial_results=partial_results or (timed_out and bool(stdout or stderr)),
-    )
+    if seq is None:
+        seq = store.next_seq()
+    if write_raw:
+        store.write_raw(
+            seq=seq,
+            phase=phase,
+            tool_name=tool_name,
+            args=args if isinstance(args, dict) else {"raw": args},
+            stdout=stdout,
+            stderr=stderr,
+            success=success and not timed_out,
+            exit_code=exit_code,
+            command_summary=command_summary,
+            started_at=started_at,
+            finished_at=_now(),
+            timed_out=timed_out,
+            partial_results=partial_results or (timed_out and bool(stdout or stderr)),
+        )
     summary = build_tool_summary(
         job_id=store.job_id,
         seq=seq,
@@ -106,6 +217,51 @@ def _persist_result(
         "summary": summary,
         "skipped": False,
     }
+
+
+def _persist_from_capture(
+    *,
+    capture: ToolCapture,
+    store: JobArtifactStore,
+    phase: str,
+    tool_name: str,
+    target: str,
+    args_hint: dict[str, Any],
+    command_summary: str,
+    settings: WorkerSettings,
+    started_at: str,
+) -> dict[str, Any]:
+    parsed = capture.parsed or {}
+    persisted = _persist_result(
+        store=store,
+        phase=phase,
+        tool_name=tool_name,
+        target=target,
+        args=capture.args or args_hint,
+        stdout=str(parsed.get("stdout") or capture.raw_text or ""),
+        stderr=str(parsed.get("stderr") or ""),
+        success=bool(parsed.get("success")),
+        exit_code=int(parsed.get("exit_code") if parsed.get("exit_code") is not None else 1),
+        command_summary=command_summary,
+        settings=settings,
+        started_at=started_at,
+        timed_out=bool(parsed.get("timed_out")),
+        partial_results=bool(parsed.get("partial_results")),
+        seq=capture.seq,
+        write_raw=False,
+    )
+    capture.summary_written = True
+    if capture.llm_compress:
+        persisted["summary"].setdefault("token_stats", {})
+        persisted["llm_compress"] = {
+            "method": capture.llm_compress.get("method"),
+            "origin_tokens": capture.llm_compress.get("origin_tokens"),
+            "compressed_tokens": capture.llm_compress.get("compressed_tokens"),
+            "model": capture.llm_compress.get("model"),
+            "window": capture.llm_compress.get("window"),
+            "trigger": capture.llm_compress.get("trigger"),
+        }
+    return persisted
 
 
 async def run_tool_agent(
@@ -182,37 +338,78 @@ async def run_tool_agent(
         args_hint["command"] = cmd
     if spec.logical_name == "nmap_scan":
         args_hint.setdefault("target", scan_host)
+
+    facts_json = json.dumps(prior_facts, default=str)
+    schema_text = tool_schema_text(mcp_tool)
+    user_skeleton = render_user_prompt(
+        spec.prompt_path,
+        target=target,
+        scan_host=scan_host,
+        prior_facts="",
+        args_hint=json.dumps(args_hint, default=str),
+    )
+    reserved_first = (
+        estimate_tokens(system) + estimate_tokens(user_skeleton) + estimate_tokens(schema_text)
+    )
+    facts_compressed = compress_for_llm(facts_json, reserved_tokens=reserved_first, settings=settings)
     user = render_user_prompt(
         spec.prompt_path,
         target=target,
         scan_host=scan_host,
-        prior_facts=json.dumps(prior_facts, default=str)[:2000],
+        prior_facts=facts_compressed["compressed_prompt"],
         args_hint=json.dumps(args_hint, default=str),
     )
+    reserved_obs = estimate_tokens(system) + estimate_tokens(user) + estimate_tokens(schema_text)
 
-    agent = create_agent(model, [mcp_tool], system_prompt=system)
+    capture = ToolCapture()
     started = _now()
+    command_summary = cmd or str(args_hint)[:500] or spec.logical_name
+    bound_tool = wrap_mcp_tool(
+        mcp_tool,
+        store=store,
+        tool_name=spec.logical_name,
+        phase=phase,
+        settings=settings,
+        reserved_tokens=reserved_obs,
+        capture=capture,
+        command_summary=command_summary,
+        started_at=started,
+    )
+
+    agent = create_agent(model, [bound_tool], system_prompt=system)
     result: Any
     try:
         result = await agent.ainvoke({"messages": [{"role": "user", "content": user}]})
     except asyncio.CancelledError:
-        # Job/wall cancel — still persist a failure artifact, then re-raise.
-        _persist_result(
-            store=store,
-            phase=phase,
-            tool_name=spec.logical_name,
-            target=target,
-            args=args_hint,
-            stdout="",
-            stderr="Cancelled before tool completed",
-            success=False,
-            exit_code=130,
-            command_summary=cmd or str(args_hint)[:500] or spec.logical_name,
-            settings=settings,
-            started_at=started,
-            timed_out=True,
-            partial_results=False,
-        )
+        if capture.parsed is not None and not capture.summary_written:
+            _persist_from_capture(
+                capture=capture,
+                store=store,
+                phase=phase,
+                tool_name=spec.logical_name,
+                target=target,
+                args_hint=args_hint,
+                command_summary=command_summary,
+                settings=settings,
+                started_at=started,
+            )
+        else:
+            _persist_result(
+                store=store,
+                phase=phase,
+                tool_name=spec.logical_name,
+                target=target,
+                args=args_hint,
+                stdout="",
+                stderr="Cancelled before tool completed",
+                success=False,
+                exit_code=130,
+                command_summary=command_summary,
+                settings=settings,
+                started_at=started,
+                timed_out=True,
+                partial_results=False,
+            )
         if on_progress:
             await on_progress(
                 "tool",
@@ -223,6 +420,28 @@ async def run_tool_agent(
     except Exception as exc:  # noqa: BLE001
         log.exception("tool agent %s failed", spec.logical_name)
         result = {"messages": [], "error": str(exc)}
+
+    if capture.parsed is not None:
+        persisted = _persist_from_capture(
+            capture=capture,
+            store=store,
+            phase=phase,
+            tool_name=spec.logical_name,
+            target=target,
+            args_hint=args_hint,
+            command_summary=command_summary,
+            settings=settings,
+            started_at=started,
+        )
+        timed_out = bool((capture.parsed or {}).get("timed_out"))
+        if on_progress:
+            suffix = " timed out (partial saved)" if timed_out else " finished"
+            await on_progress(
+                "tool",
+                f"{spec.logical_name}{suffix}",
+                {"phase": phase, "timed_out": timed_out, "seq": persisted["summary"].get("seq")},
+            )
+        return persisted
 
     from app.pipelines.task_discovery import extract_tool_calls
 
@@ -268,7 +487,6 @@ async def run_tool_agent(
         if not timed_out:
             exit_code = 1
 
-    command_summary = cmd or str(args)[:500] or spec.logical_name
     persisted = _persist_result(
         store=store,
         phase=phase,
