@@ -108,6 +108,7 @@ def get_principal(
 
 
 def require_jwt(principal: Principal = Depends(get_principal)) -> Principal:
+    """Allow any authenticated human user (all non-service roles)."""
     if principal.kind not in (
         PrincipalKind.user,
         PrincipalKind.security_analyst,
@@ -118,29 +119,60 @@ def require_jwt(principal: Principal = Depends(get_principal)) -> Principal:
     return principal
 
 
+# CR-01 FIX: require_admin now actually enforces the admin role.
 def require_admin(principal: Principal = Depends(require_jwt)) -> Principal:
+    """Only admin role may proceed."""
+    if principal.kind != PrincipalKind.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
     return principal
 
 
+# CR-01 FIX: require_manager now enforces manager-or-admin.
 def require_manager(principal: Principal = Depends(require_jwt)) -> Principal:
+    """Security manager or admin role required."""
+    if principal.kind not in (PrincipalKind.security_manager, PrincipalKind.admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Security manager or admin role required",
+        )
     return principal
 
 
 def require_manager_or_analyst(principal: Principal = Depends(require_jwt)) -> Principal:
+    """Security analyst, security manager, or admin role required."""
+    if principal.kind not in (
+        PrincipalKind.security_analyst,
+        PrincipalKind.security_manager,
+        PrincipalKind.admin,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Security analyst, manager, or admin role required",
+        )
     return principal
 
 
+# CR-10: require_ops_reader allows any authenticated human.
+# Name reflects "anyone in an ops role (incl. basic user)" can interact with
+# tasks.  Write access is gated by the task state-machine inside the service
+# layer rather than at the dependency level.
 def require_ops_reader(principal: Principal = Depends(require_jwt)) -> Principal:
+    """Any authenticated human user (state-machine enforces write rules)."""
     return principal
 
 
 def require_service(principal: Principal = Depends(get_principal)) -> Principal:
+    """Only red_service or blue_service tokens may proceed."""
     if principal.kind not in (PrincipalKind.red_service, PrincipalKind.blue_service):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Service token required")
     return principal
 
 
 def require_jwt_or_service(principal: Principal = Depends(get_principal)) -> Principal:
+    """Any valid principal (human JWT or service token) is accepted."""
     return principal
 
 

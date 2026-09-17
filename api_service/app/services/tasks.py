@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 
+from app.constants import PROFILE_TASK_DISCOVERY, TERMINAL_TASK_STATUSES, TOOL_SCAN_REPORT
 from app.db.store import get_store
 from app.deps import Principal
 from app.schemas.models import TaskCreate, TaskLinkCreate, TaskNoteCreate, TaskPatch
@@ -31,7 +32,7 @@ def _estimated_duration_seconds(job: dict[str, Any], progress: list[dict[str, An
             except (TypeError, ValueError):
                 pass
     profile = str(job.get("profile") or "")
-    if profile == "task-discovery":
+    if profile == PROFILE_TASK_DISCOVERY:
         return 1800
     return 300
 
@@ -81,7 +82,8 @@ def list_tasks(_principal: Principal, **filters: Any) -> list[dict[str, Any]]:
 
 
 def create_task(body: TaskCreate, principal: Principal) -> dict[str, Any]:
-    assert principal.user_id
+    if not principal.user_id:
+        raise HTTPException(status_code=400, detail="Principal must carry a user_id")
     manager = UUID(principal.user_id)
     status_val = "assigned" if body.assignee_id else "draft"
     row = _store().create(
@@ -128,7 +130,8 @@ def _is_assignee(task: dict[str, Any], principal: Principal) -> bool:
 def apply_patch(task_id: UUID, body: TaskPatch, principal: Principal) -> dict[str, Any]:
     task = get_task(task_id)
     _assert_not_closed(task)
-    assert principal.user_id
+    if not principal.user_id:
+        raise HTTPException(status_code=400, detail="Principal must carry a user_id")
     actor = UUID(principal.user_id)
 
     if body.action:
@@ -182,7 +185,8 @@ def _transition(
     new_assignee: UUID | None,
     principal: Principal,
 ) -> dict[str, Any]:
-    assert principal.user_id
+    if not principal.user_id:
+        raise HTTPException(status_code=400, detail="Principal must carry a user_id")
     actor = UUID(principal.user_id)
     task_id = task["id"] if isinstance(task["id"], UUID) else UUID(str(task["id"]))
     cur = str(task.get("status"))
@@ -344,7 +348,8 @@ def _transition(
 def add_note(task_id: UUID, body: TaskNoteCreate, principal: Principal) -> dict[str, Any]:
     task = get_task(task_id)
     _assert_not_closed(task)
-    assert principal.user_id
+    if not principal.user_id:
+        raise HTTPException(status_code=400, detail="Principal must carry a user_id")
     note = _store().create(
         "task_notes",
         {
@@ -362,7 +367,8 @@ def add_note(task_id: UUID, body: TaskNoteCreate, principal: Principal) -> dict[
 def add_link(task_id: UUID, body: TaskLinkCreate, principal: Principal) -> dict[str, Any]:
     task = get_task(task_id)
     _assert_not_closed(task)
-    assert principal.user_id
+    if not principal.user_id:
+        raise HTTPException(status_code=400, detail="Principal must carry a user_id")
     table = "findings" if body.kind == "finding" else "scans"
     if not _store().get(table, body.ref_id):
         raise HTTPException(status_code=404, detail=f"{body.kind} not found")
@@ -402,7 +408,7 @@ def complete_linked_task_for_job(job_id: UUID) -> None:
     for task in _store().list_all("tasks"):
         if str(task.get("linked_job_id")) != str(job_id):
             continue
-        if str(task.get("status")) in {"completed", "reviewed", "closed"}:
+        if str(task.get("status")) in TERMINAL_TASK_STATUSES:
             continue
         tid = task["id"] if isinstance(task["id"], UUID) else UUID(str(task["id"]))
         _store().update(
@@ -450,6 +456,8 @@ def ensure_task_asset(task: dict[str, Any]) -> UUID:
 
 async def start_discovery_run(task: dict[str, Any], principal: Principal) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Create a red task-discovery job. Returns (task, job_to_dispatch_or_None)."""
+    if not principal.user_id:
+        raise HTTPException(status_code=400, detail="Principal must carry a user_id")
     if str(task.get("task_type") or "red") == "blue":
         return task, None
     linked = task.get("linked_job_id")
@@ -467,9 +475,9 @@ async def start_discovery_run(task: dict[str, Any], principal: Principal) -> tup
     from app.services import crud
 
     asset_id = ensure_task_asset(task)
-    uid = UUID(principal.user_id) if principal.user_id else None
+    uid = UUID(principal.user_id)
     job = crud.create_job(
-        JobCreate(team="red", profile="task-discovery", asset_ids=[asset_id]),
+        JobCreate(team="red", profile=PROFILE_TASK_DISCOVERY, asset_ids=[asset_id]),
         requested_by=uid,
     )
     tid = _task_uuid(task)
@@ -550,7 +558,7 @@ def get_task_results(task_id: UUID) -> dict[str, Any]:
 
     scan_report: str | None = None
     for tool in tools:
-        if str(tool.get("tool_name") or "") != "scan_report":
+        if str(tool.get("tool_name") or "") != TOOL_SCAN_REPORT:
             continue
         raw = tool.get("raw_output") or {}
         if isinstance(raw, dict) and raw.get("markdown"):

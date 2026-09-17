@@ -29,7 +29,9 @@ def _sb():
 def list_users(_: Principal = Depends(require_admin)):
     settings = get_settings()
     profiles = identity.list_profiles()
-    roles = {str(r.get("user_id")): r.get("role") for r in identity._store().list_all("roles")}  # noqa: SLF001
+    # CR-08 FIX: use the public list_roles() accessor instead of reaching into
+    # identity's private _store() helper.
+    roles = {str(r.get("user_id")): r.get("role") for r in identity.list_roles()}
     # Enrich from Auth when supabase
     out = []
     for p in profiles:
@@ -64,6 +66,9 @@ def create_user(body: AdminUserCreate, _: Principal = Depends(require_admin)):
             },
         )
         identity.set_role(uid, body.role)
+        # CR-14 NOTE: temporary_password is intentionally returned for invite
+        # flow but will appear in any access-log or tracing middleware.
+        # Ensure your logging pipeline masks response bodies for this endpoint.
         return {
             "user_id": str(uid),
             "email": body.email,

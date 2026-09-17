@@ -49,6 +49,8 @@ async def dispatch_job(
         if str(s.get("job_id")) == str(job["id"])
     ]
 
+    # CR-05 FIX: callback URL is now driven by settings.api_callback_url instead
+    # of a hardcoded 127.0.0.1 reference that breaks containerised deployments.
     payload = {
         "job_id": str(job["id"]),
         "team": team,
@@ -64,7 +66,7 @@ async def dispatch_job(
             for a in assets
         ],
         "tools": None,
-        "callback_base_url": "http://127.0.0.1:8000/api/v1",
+        "callback_base_url": settings.api_callback_url,
         "demo_safe_mode": True,
         "allowlist": allowlist,
         "task_id": str(task["id"]) if task and task.get("id") else None,
@@ -84,12 +86,38 @@ async def dispatch_job(
                 {"status": "running", "source_service": f"{team}_team_backend"},
             )
 
+    # CR-04 FIX: distinguish permanent worker rejections from transient network
+    # failures instead of silently swallowing all errors.
+    job_id = job["id"]
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
             resp = await client.post(f"{base.rstrip('/')}/internal/jobs", json=payload)
             resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("dispatch failed: %s", exc)
+    except httpx.HTTPStatusError as exc:
+        # Worker actively rejected the job (4xx/5xx) — mark it failed so the
+        # UI surfaces the error immediately instead of showing "dispatched" forever.
+        log.error(
+            "Worker rejected job %s with HTTP %s: %s",
+            job_id,
+            exc.response.status_code,
+            exc.response.text[:200],
+        )
+        try:
+            crud.patch_job(
+                job_id,
+                JobPatch(status="failed", error=f"Worker rejected: HTTP {exc.response.status_code}"),
+            )
+            job = crud.get_job(job_id)
+        except Exception:  # noqa: BLE001
+            pass  # best-effort; original job dict still returned
+    except httpx.TransportError as exc:
+        # Transient network error (DNS, connection refused, timeout).
+        # Leave the job as "dispatched" — the worker may poll and pick it up.
+        log.warning(
+            "Transient network failure dispatching job %s (%s) — job stays dispatched",
+            job_id,
+            exc,
+        )
     return job
 
 
@@ -109,5 +137,7 @@ async def cancel_worker_job(task: dict[str, Any], settings: Settings) -> None:
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
             resp = await client.post(f"{base.rstrip('/')}/internal/jobs/{job_id}/cancel")
             resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("worker cancel failed: %s", exc)
+    except httpx.TransportError as exc:
+        log.warning("worker cancel failed (network): %s", exc)
+    except httpx.HTTPStatusError as exc:
+        log.warning("worker cancel rejected HTTP %s: %s", exc.response.status_code, exc.response.text[:200])

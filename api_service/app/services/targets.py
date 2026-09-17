@@ -37,11 +37,14 @@ def parse_target(target: str) -> dict[str, str | list[str] | int | None]:
     return {"hostname": host, "url": url, "allowlist": allowlist, "port": port}
 
 
-def lab_reachable_url(url: str) -> str:
+def lab_reachable_url(url: str, settings=None) -> str:
     """Map this instance's public Juice Shop URL to the in-container bind.
 
     NAT hairpin to $PUBLIC_IPADDR:$VAST_TCP_PORT_10200 fails from inside the
     container; HexStrike must scan http://127.0.0.1:10200 instead.
+
+    CR-18: reads from Settings when provided so the values are covered by the
+    structured config system instead of raw os.environ.get() calls.
     """
     raw = (url or "").strip()
     if not raw:
@@ -51,8 +54,15 @@ def lab_reachable_url(url: str) -> str:
         parsed = urlparse(parsed_url)
     except ValueError:
         return raw
-    public_ip = (os.environ.get("PUBLIC_IPADDR") or "").strip()
-    juice_ext = (os.environ.get("VAST_TCP_PORT_10200") or "").strip()
+
+    if settings is not None:
+        public_ip = settings.public_ipaddr.strip()
+        juice_ext = settings.vast_tcp_port_10200.strip()
+    else:
+        # Fallback for callers that don't supply settings (e.g. tests).
+        public_ip = (os.environ.get("PUBLIC_IPADDR") or "").strip()
+        juice_ext = (os.environ.get("VAST_TCP_PORT_10200") or "").strip()
+
     host = parsed.hostname or ""
     port = parsed.port
     if public_ip and juice_ext and host == public_ip and str(port) == str(juice_ext):

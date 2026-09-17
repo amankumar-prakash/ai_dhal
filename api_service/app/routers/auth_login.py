@@ -82,7 +82,7 @@ def _role_from_supabase(user_id: str, settings: Settings) -> str | None:
         rows = resp.json()
         if isinstance(rows, list) and rows:
             return str(rows[0].get("role") or "") or None
-    except Exception:
+    except (httpx.HTTPError, httpx.TransportError, KeyError, ValueError, TypeError):
         return None
     return None
 
@@ -115,7 +115,7 @@ def _login_via_supabase(email: str, password: str, settings: Settings) -> dict[s
             str((user.get("user_metadata") or {}).get("display_name") or email.split("@")[0]),
         )
         return {"access_token": token, "token_type": "bearer", "role": role}
-    except Exception:
+    except (httpx.HTTPError, httpx.TransportError, KeyError, ValueError, TypeError):
         return None
 
 

@@ -57,6 +57,13 @@ def set_role(user_id: UUID, role: str) -> dict[str, Any]:
     return _store().create("roles", {"id": uuid4(), "user_id": user_id, "role": role})
 
 
+# CR-08 / CR-09 FIX: public accessor so callers (e.g. admin_users router) do
+# not need to reach into this module's private _store() helper.
+def list_roles() -> list[dict[str, Any]]:
+    """Return all rows from the roles table."""
+    return _store().list_all("roles")
+
+
 def list_in_progress_tasks(assignee_id: UUID) -> list[dict[str, Any]]:
     return [
         t
@@ -66,6 +73,9 @@ def list_in_progress_tasks(assignee_id: UUID) -> list[dict[str, Any]]:
 
 
 def tool_unlock_for(_user_id: UUID, _role: str) -> dict[str, bool]:
+    # CR-07: This is intentionally a permissive stub for the lab environment.
+    # TODO: implement per-user / per-role gating when real tool-unlock rules
+    #       are defined (e.g. via a tool_grants table in Supabase).
     return {"red": True, "blue": True}
 
 
