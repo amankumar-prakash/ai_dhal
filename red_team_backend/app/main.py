@@ -13,8 +13,16 @@ app.include_router(hexstrike_test_router)
 
 @app.get("/health")
 def health():
+    from app.orchestration.model_context import compress_trigger_tokens, context_window_for
+
     s = get_settings()
-    return {"status": "ok", "llm_model": s.llm_model, "llm_stub": s.stub_llm}
+    return {
+        "status": "ok",
+        "llm_model": s.llm_model,
+        "llm_stub": s.stub_llm,
+        "llm_context_window": context_window_for(s),
+        "compress_trigger_tokens": compress_trigger_tokens(s),
+    }
 
 
 @app.get("/ready")

@@ -10,6 +10,9 @@ class WorkerSettings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_base_url: str = ""
     llm_stub: str = "1"
+    # 0 = use the published window for LLM_MODEL (see model_context.py)
+    llm_context_window: int = 0
+    llm_compress_trigger_ratio: float = 0.8
     api_base_url: str = "http://localhost:8000/api/v1"
     red_service_token: str = "change-me-red"
     demo_safe_mode: str = "1"

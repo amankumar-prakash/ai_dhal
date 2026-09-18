@@ -8,6 +8,7 @@ from app.orchestration.artifact_store import JobArtifactStore, empty_facts, merg
 from app.orchestration.compress import (
     build_phase_rollup,
     build_tool_summary,
+    compress_for_llm,
     compress_text,
     consolidate_facts,
     estimate_tokens,
@@ -198,3 +199,163 @@ def test_run_recon_importable() -> None:
     from app.orchestration import run_recon
 
     assert callable(run_recon)
+
+
+def test_compress_text_hard_truncates_after_lingua(monkeypatch) -> None:
+    from app.orchestration import compress as compress_mod
+
+    class _FatCompressor:
+        def compress_prompt(self, original, **kwargs):  # noqa: ANN001
+            return {
+                "compressed_prompt": original,
+                "origin_tokens": 9999,
+                "compressed_tokens": 9999,
+            }
+
+    monkeypatch.setattr(compress_mod, "_get_compressor", lambda _settings: _FatCompressor())
+    settings = WorkerSettings(llmlingua_enabled="1")
+    big = "word " * 5000
+    result = compress_text(big, target_token=100, settings=settings)
+    assert result["method"] == "llmlingua2"
+    assert result["compressed_tokens"] <= 100
+    assert estimate_tokens(result["compressed_prompt"]) <= 100
+
+
+def test_compress_for_llm_uses_model_window() -> None:
+    settings = WorkerSettings(
+        llm_model="gpt-4o-mini",
+        llm_context_window=1000,
+        llm_compress_trigger_ratio=0.8,
+        llmlingua_enabled="0",
+    )
+    big = "https://example.test/page/scan " * 8000
+    result = compress_for_llm(big, reserved_tokens=50, settings=settings)
+    assert result["window"] == 1000
+    assert result["trigger"] == 800
+    assert result["reserved"] == 50
+    assert result["cap"] == 750
+    assert result["method"] == "heuristic_truncate"
+    assert result["compressed_tokens"] <= 750
+    assert "https://example.test" in result["compressed_prompt"]
+
+
+async def test_wrapped_tool_persists_raw_and_compresses_observation(tmp_path: Path) -> None:
+    from langchain_core.tools import tool
+
+    from app.orchestration.tool_agent import ToolCapture, wrap_mcp_tool
+
+    blob = "https://insightbot.example/page/%s?q=scan\n" % 0
+    blob = blob + ("OPEN PORT NOISE LINE\n" * 20000)
+
+    @tool
+    def dummy_scan(target: str) -> str:
+        """Return a huge crawl dump."""
+        return blob
+
+    store = JobArtifactStore(tmp_path, "job-wrap")
+    settings = WorkerSettings(
+        llmlingua_enabled="0",
+        llm_model="gpt-4o-mini",
+        llm_context_window=1000,
+        llm_compress_trigger_ratio=0.8,
+    )
+    capture = ToolCapture()
+    wrapped = wrap_mcp_tool(
+        dummy_scan,
+        store=store,
+        tool_name="katana_crawl",
+        phase="content",
+        settings=settings,
+        reserved_tokens=50,
+        capture=capture,
+        command_summary="dummy_scan",
+        started_at="t0",
+    )
+    result = await wrapped.ainvoke({"target": "http://t"})
+    assert capture.seq == 1
+    raw = store.list_raw()[0]
+    assert blob[:80] in raw["stdout"]
+    assert "OPEN PORT NOISE LINE" in raw["stdout"]
+    assert estimate_tokens(result) <= 750
+    assert len(result) < len(blob)
+    assert capture.llm_compress is not None
+    assert capture.llm_compress["method"] == "heuristic_truncate"
+    assert capture.parsed is not None
+    assert capture.parsed["stdout"] == blob
+
+
+async def test_wrapped_tool_fake_lingua_still_caps_observation(tmp_path: Path, monkeypatch) -> None:
+    from langchain_core.tools import tool
+
+    from app.orchestration import compress as compress_mod
+    from app.orchestration.tool_agent import ToolCapture, wrap_mcp_tool
+
+    class _FatCompressor:
+        def compress_prompt(self, original, **kwargs):  # noqa: ANN001
+            return {"compressed_prompt": original, "origin_tokens": 1, "compressed_tokens": 1}
+
+    monkeypatch.setattr(compress_mod, "_get_compressor", lambda _settings: _FatCompressor())
+    blob = "OPEN PORT NOISE LINE\n" * 20000
+
+    @tool
+    def dummy_scan(target: str) -> str:
+        """Huge dump that fake lingua refuses to shrink."""
+        return blob
+
+    store = JobArtifactStore(tmp_path, "job-lingua")
+    settings = WorkerSettings(
+        llmlingua_enabled="1",
+        llm_model="gpt-4o-mini",
+        llm_context_window=1000,
+        llm_compress_trigger_ratio=0.8,
+    )
+    capture = ToolCapture()
+    wrapped = wrap_mcp_tool(
+        dummy_scan,
+        store=store,
+        tool_name="katana_crawl",
+        phase="content",
+        settings=settings,
+        reserved_tokens=50,
+        capture=capture,
+        command_summary="dummy_scan",
+        started_at="t0",
+    )
+    result = await wrapped.ainvoke({"target": "http://t"})
+    assert blob[:40] in store.list_raw()[0]["stdout"]
+    assert estimate_tokens(result) <= 750
+    assert capture.llm_compress is not None
+    assert capture.llm_compress["method"] == "llmlingua2"
+
+
+async def test_wrapped_tool_passthrough_when_under_trigger(tmp_path: Path) -> None:
+    from langchain_core.tools import tool
+
+    from app.orchestration.tool_agent import ToolCapture, wrap_mcp_tool
+
+    small = "80/tcp open http\n"
+
+    @tool
+    def dummy_scan(target: str) -> str:
+        """Tiny nmap-like line."""
+        return small
+
+    store = JobArtifactStore(tmp_path, "job-small")
+    settings = WorkerSettings(llmlingua_enabled="0", llm_model="gpt-4o-mini")
+    capture = ToolCapture()
+    wrapped = wrap_mcp_tool(
+        dummy_scan,
+        store=store,
+        tool_name="nmap_scan",
+        phase="surface",
+        settings=settings,
+        reserved_tokens=10,
+        capture=capture,
+        command_summary="nmap",
+        started_at="t0",
+    )
+    result = await wrapped.ainvoke({"target": "localhost"})
+    assert result == small
+    assert capture.llm_compress is not None
+    assert capture.llm_compress["method"] == "passthrough"
+    assert store.list_raw()[0]["stdout"] == small
