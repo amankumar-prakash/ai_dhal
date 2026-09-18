@@ -22,8 +22,11 @@ async def create_job(
     principal: Principal = Depends(require_jwt),
     settings: Settings = Depends(get_settings),
 ):
-    if not body.asset_ids:
-        raise HTTPException(status_code=422, detail="asset_ids minItems 1")
+    if not body.asset_ids and not body.target:
+        raise HTTPException(status_code=422, detail="one of asset_ids or target is required")
+    if not body.asset_ids and body.target:
+        asset_id = crud.resolve_or_create_asset_for_target(body.target.strip())
+        body = body.model_copy(update={"asset_ids": [asset_id], "target": None})
     uid = UUID(principal.user_id) if principal.user_id else None
     job = crud.create_job(body, requested_by=uid)
     return await dispatch_job(job, settings)

@@ -49,6 +49,36 @@ def list_assets() -> list[dict[str, Any]]:
     return _store().list_all("assets")
 
 
+def find_asset_by_hostname(hostname: str) -> dict[str, Any] | None:
+    needle = (hostname or "").strip().lower()
+    if not needle:
+        return None
+    for row in _store().list_all("assets"):
+        if str(row.get("hostname") or "").strip().lower() == needle:
+            return row
+        if str(row.get("ip_address") or "").strip().lower() == needle:
+            return row
+    return None
+
+
+def resolve_or_create_asset_for_target(target: str) -> UUID:
+    """Return an existing asset id for `target`, creating one if none matches.
+
+    Modeled on tasks.ensure_task_asset so a free-typed IP/hostname satisfies the
+    asset_ids-based job contract without asking the user to pre-register an asset.
+    """
+    from app.services.targets import parse_target
+
+    parsed = parse_target(target)
+    hostname = str(parsed["hostname"] or target or "unknown")
+    existing = find_asset_by_hostname(hostname)
+    if existing:
+        return existing["id"] if isinstance(existing["id"], UUID) else UUID(str(existing["id"]))
+    ip = hostname if (hostname.replace(".", "").isdigit() or ":" in hostname) else "0.0.0.0"
+    asset = create_asset(AssetCreate(name=target, hostname=hostname, ip_address=ip))
+    return asset["id"] if isinstance(asset["id"], UUID) else UUID(str(asset["id"]))
+
+
 def get_asset(asset_id: UUID) -> dict[str, Any]:
     row = _store().get("assets", asset_id)
     if not row:

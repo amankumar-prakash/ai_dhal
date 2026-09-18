@@ -15,11 +15,19 @@ class WorkerSettings(BaseSettings):
     llm_compress_trigger_ratio: float = 0.8
     api_base_url: str = "http://localhost:8000/api/v1"
     red_service_token: str = "change-me-red"
+    blue_service_token: str = "change-me-blue"
     demo_safe_mode: str = "1"
     target_allowlist: str = ""
     hexstrike_base_url: str = "http://localhost:8005"
     hexstrike_mcp_script: str = ""
     hexstrike_stub: str = "0"
+
+    # Red-team supervised chat (prompt-driven HexStrike agent)
+    red_team_chat_stub: str = "1"
+    # Cap tool-call loops per session to bound cost / runaway agents.
+    red_team_chat_max_turns: int = 40
+    # How long a pending tool call waits for an operator decision before auto-stopping.
+    red_team_chat_approval_timeout_seconds: int = 300
 
     # Orchestration / token budget
     artifact_root: str = "/tmp/ai_dhal/jobs"
@@ -42,6 +50,10 @@ class WorkerSettings(BaseSettings):
     @property
     def stub_hexstrike(self) -> bool:
         return self.hexstrike_stub.strip() in {"1", "true", "True", "yes"}
+
+    @property
+    def stub_red_team_chat(self) -> bool:
+        return self.red_team_chat_stub.strip() in {"1", "true", "True", "yes"}
 
     @property
     def use_llmlingua(self) -> bool:

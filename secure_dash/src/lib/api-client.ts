@@ -80,7 +80,9 @@ export function fetchNotifications() {
 export type JobCreateBody = {
   team: "red" | "blue";
   profile: string;
-  asset_ids: string[];
+  // Provide either asset_ids (existing callers) or a free-typed target.
+  asset_ids?: string[];
+  target?: string;
   tools?: string[] | null;
 };
 

@@ -12,12 +12,12 @@ from app.routers import (
     admin_users,
     assets,
     auth_login,
-    cai_chat,
     findings,
     jobs,
     me,
     misc,
     patches,
+    red_team_chat,
     scans,
     tasks,
     threat_events,
@@ -39,7 +39,7 @@ app.include_router(misc.router_tools, prefix=API)
 app.include_router(me.router, prefix=API)
 app.include_router(tasks.router, prefix=API)
 app.include_router(admin_users.router, prefix=API)
-app.include_router(cai_chat.router, prefix=API)
+app.include_router(red_team_chat.router, prefix=API)
 
 _JOB_HITS: dict[str, deque[float]] = defaultdict(deque)
 _JOB_LIMIT = 30

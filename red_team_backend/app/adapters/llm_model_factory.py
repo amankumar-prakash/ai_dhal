@@ -41,20 +41,20 @@ def uses_responses_api(model_name: str) -> bool:
 def build_agent_model(settings: WorkerSettings) -> Union[str, "ChatOpenAI"]:  # noqa: F821
     """Return the model argument to hand to `langchain.agents.create_agent`.
 
-    - Reasoning models -> a `ChatOpenAI` instance wired to `/v1/responses`.
-    - Everything else (e.g. gpt-4o-mini) -> the `"openai:<model>"` shorthand,
-      which keeps using the classic `/v1/chat/completions` endpoint.
+    Always return a `ChatOpenAI` instance so the API key from WorkerSettings is
+    used (supervisord does not export OPENAI_API_KEY into the process env).
+
+    - Reasoning models -> `/v1/responses` (`use_responses_api=True`).
+    - Everything else (e.g. gpt-4o-mini) -> classic `/v1/chat/completions`.
     """
-    model_name = settings.llm_model
-
-    if not uses_responses_api(model_name):
-        return f"openai:{model_name}"
-
     from langchain_openai import ChatOpenAI
 
-    return ChatOpenAI(
-        model=model_name,
-        api_key=settings.openai_api_key or None,
-        base_url=settings.llm_base_url or None,
-        use_responses_api=True,
-    )
+    model_name = settings.llm_model
+    kwargs: dict = {
+        "model": model_name,
+        "api_key": settings.openai_api_key or None,
+        "base_url": settings.llm_base_url or None,
+    }
+    if uses_responses_api(model_name):
+        kwargs["use_responses_api"] = True
+    return ChatOpenAI(**kwargs)

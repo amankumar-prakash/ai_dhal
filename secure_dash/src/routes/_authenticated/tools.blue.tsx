@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ToolLauncher } from "@/components/tools/ToolLauncher";
-import { CaiChatPanel } from "@/components/tools/CaiChatPanel";
+import { RedTeamChatPanel } from "@/components/tools/RedTeamChatPanel";
 import { PageHeader } from "@/components/sd/primitives";
 
 export const Route = createFileRoute("/_authenticated/tools/blue")({
@@ -20,7 +20,7 @@ function BlueToolsPage() {
         subtitle="Launch defensive validation jobs against monitored assets."
       />
       <ToolLauncher team="blue" taskId={taskId} />
-      <CaiChatPanel team="blue" taskId={taskId} />
+      <RedTeamChatPanel team="blue" taskId={taskId} />
     </div>
   );
 }

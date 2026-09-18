@@ -1,9 +1,17 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createJob } from "@/lib/api-client";
 import { linkJobToTask } from "@/lib/tasks-api";
-import { assetsQuery, type TeamSide } from "@/lib/security";
+import { type TeamSide } from "@/lib/security";
 import { ErrorBanner, Eyebrow, Panel } from "@/components/sd/primitives";
+
+/** Loose IP-or-hostname check just to gate the button; the API resolves the real asset. */
+export function looksLikeTarget(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  const stripped = v.replace(/^\w+:\/\//, "").split("/")[0].split(":")[0];
+  return /^[A-Za-z0-9.-]+$/.test(stripped) && stripped.includes(".") === true;
+}
 
 const PROFILES: Record<TeamSide, { value: string; label: string }[]> = {
   red: [
@@ -17,17 +25,40 @@ const PROFILES: Record<TeamSide, { value: string; label: string }[]> = {
   ],
 };
 
-/** Starts a platform job via `POST /jobs`; optionally links the job back onto a task. */
-export function ToolLauncher({ team, taskId }: { team: TeamSide; taskId?: string }) {
+type Props = {
+  team: TeamSide;
+  taskId?: string;
+  /** When true, Start job starts the HexStrike chat instead of dispatching a platform job. */
+  chatMode?: boolean;
+  target?: string;
+  onTargetChange?: (value: string) => void;
+  onStartChat?: () => void | Promise<void>;
+  chatStarting?: boolean;
+  chatActive?: boolean;
+};
+
+/** Starts a platform job via `POST /jobs`, or (chatMode) starts the supervised chat. */
+export function ToolLauncher({
+  team,
+  taskId,
+  chatMode = false,
+  target: controlledTarget,
+  onTargetChange,
+  onStartChat,
+  chatStarting = false,
+  chatActive = false,
+}: Props) {
   const qc = useQueryClient();
-  const assets = useQuery(assetsQuery);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [internalTarget, setInternalTarget] = useState("");
   const [profile, setProfile] = useState(PROFILES[team][0].value);
   const [lastJobId, setLastJobId] = useState<string | null>(null);
 
+  const target = controlledTarget ?? internalTarget;
+  const setTarget = onTargetChange ?? setInternalTarget;
+
   const mutation = useMutation({
     mutationFn: async () => {
-      const job = await createJob({ team, profile, asset_ids: selected });
+      const job = await createJob({ team, profile, target: target.trim() });
       if (taskId) {
         await linkJobToTask(taskId, job.id);
         qc.invalidateQueries({ queryKey: ["tasks", "detail", taskId] });
@@ -40,10 +71,14 @@ export function ToolLauncher({ team, taskId }: { team: TeamSide; taskId?: string
     },
   });
 
+  const canStart = looksLikeTarget(target);
+  const starting = chatMode ? chatStarting : mutation.isPending;
+  const startDisabled = !canStart || starting || (chatMode && chatActive);
+
   return (
     <Panel className="p-4">
       <Eyebrow>Launch {team === "red" ? "Red" : "Blue"} job</Eyebrow>
-      {mutation.isError && (
+      {mutation.isError && !chatMode && (
         <div className="mt-3">
           <ErrorBanner
             message={
@@ -54,57 +89,64 @@ export function ToolLauncher({ team, taskId }: { team: TeamSide; taskId?: string
       )}
       {taskId && (
         <p className="micro mt-2" style={{ color: "var(--text-muted)" }}>
-          Linked to task <span className="mono">{taskId}</span> — the job id attaches to it
-          automatically.
+          Linked to task <span className="mono">{taskId}</span>
+          {chatMode ? " — chat session attaches to it." : " — the job id attaches to it automatically."}
         </p>
       )}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {(assets.data ?? []).map((a) => {
-          const on = selected.includes(a.id);
-          return (
-            <button
-              key={a.id}
-              onClick={() => setSelected((p) => (on ? p.filter((x) => x !== a.id) : [...p, a.id]))}
-              className="micro rounded-sm px-2 py-1"
-              style={{
-                border: `1px solid ${on ? "var(--text-primary)" : "var(--border-hairline)"}`,
-                color: on ? "var(--text-primary)" : "var(--text-secondary)",
-                background: on ? "var(--surface)" : "transparent",
-              }}
-              aria-pressed={on}
-            >
-              {a.name}
-            </button>
-          );
-        })}
+      <div className="mt-3">
+        <label className="micro block" style={{ color: "var(--text-secondary)" }}>
+          Target (IP address or hostname)
+          <input
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            placeholder="e.g. 10.0.0.5 or host.corp.internal"
+            className="mono mt-1 block w-full rounded-sm px-3 py-2 text-sm"
+            style={{
+              background: "var(--surface-raised)",
+              border: "1px solid var(--border-hairline)",
+              color: "var(--text-primary)",
+            }}
+          />
+        </label>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <select
-          value={profile}
-          onChange={(e) => setProfile(e.target.value)}
-          className="micro rounded-sm px-2 py-1"
-          style={{
-            background: "var(--surface-raised)",
-            border: "1px solid var(--border-hairline)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          {PROFILES[team].map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+        {!chatMode && (
+          <select
+            value={profile}
+            onChange={(e) => setProfile(e.target.value)}
+            className="micro rounded-sm px-2 py-1"
+            style={{
+              background: "var(--surface-raised)",
+              border: "1px solid var(--border-hairline)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            {PROFILES[team].map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        )}
         <button
-          disabled={!selected.length || mutation.isPending}
-          onClick={() => mutation.mutate()}
+          disabled={startDisabled}
+          onClick={() => {
+            if (chatMode) void onStartChat?.();
+            else mutation.mutate();
+          }}
           className="rounded-sm px-3 py-2 text-sm font-medium disabled:opacity-50"
           style={{ background: "var(--accent-ember)", color: "var(--bg-base)" }}
         >
-          {mutation.isPending ? "Dispatching…" : "Start job"}
+          {starting ? (chatMode ? "Starting…" : "Dispatching…") : "Start job"}
         </button>
       </div>
-      {lastJobId && (
+      {chatMode && (
+        <p className="micro mt-3" style={{ color: "var(--text-muted)" }}>
+          Starts a HexStrike chat session scoped to this target. Approve each tool call in the
+          terminal below.
+        </p>
+      )}
+      {!chatMode && lastJobId && (
         <p className="mono micro mt-3" style={{ color: "var(--text-secondary)" }}>
           Job {lastJobId} dispatched — check Scan Report for progress.
         </p>

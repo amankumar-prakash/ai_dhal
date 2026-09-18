@@ -107,7 +107,10 @@ class ThreatEvent(ThreatEventCreate):
 class JobCreate(BaseModel):
     team: TeamSide
     profile: str
-    asset_ids: list[UUID] = Field(min_length=1)
+    # Either pass asset_ids directly (existing callers) or a free-typed target
+    # IP/hostname that the API resolves/creates into an asset.
+    asset_ids: list[UUID] | None = None
+    target: str | None = None
     tools: list[str] | None = None
 
 
@@ -297,34 +300,59 @@ class AdminUserPatch(BaseModel):
     reissue_invite: bool = False
 
 
-CaiTeam = Literal["red", "blue"]
-CaiSessionStatus = Literal["starting", "running", "stopping", "stopped", "failed"]
+RedTeamChatTeam = Literal["red", "blue"]
+RedTeamChatSessionStatus = Literal["starting", "running", "stopping", "stopped", "failed"]
+RedTeamChatChannel = Literal["user", "agent", "system", "tool"]
+RedTeamChatEventType = Literal[
+    "started",
+    "status",
+    "error",
+    "ended",
+    "user_echo",
+    "agent_message",
+    "tool_call_pending",
+    "tool_call_approved",
+    "tool_call_stopped",
+    "tool_result",
+]
 
 
-class CaiSessionCreate(BaseModel):
-    team: CaiTeam
+class RedTeamChatSessionCreate(BaseModel):
+    team: RedTeamChatTeam
     task_id: UUID | None = None
     message: str | None = None
+    target: str | None = None
 
 
-class CaiMessageCreate(BaseModel):
+class RedTeamChatMessageCreate(BaseModel):
     content: str
 
 
-class CaiSessionOut(BaseModel):
+class RedTeamChatDecision(BaseModel):
+    decision: Literal["approve", "stop"]
+    reason: str | None = None
+
+
+class RedTeamChatSessionOut(BaseModel):
     id: UUID
-    team: CaiTeam
-    status: CaiSessionStatus
+    team: RedTeamChatTeam
+    status: RedTeamChatSessionStatus
     task_id: UUID | None = None
+    busy: bool = False
+    pending_call_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     ended_at: datetime | None = None
     error: str | None = None
 
 
-class CaiStreamEvent(BaseModel):
+class RedTeamChatStreamEvent(BaseModel):
     session_id: UUID
     seq: int
-    type: Literal["started", "stdout", "stderr", "user_echo", "status", "error", "ended"]
+    type: RedTeamChatEventType
+    channel: RedTeamChatChannel = "system"
     text: str = ""
+    call_id: str | None = None
+    tool: str | None = None
+    args: dict[str, Any] | None = None
     ts: datetime | None = None
