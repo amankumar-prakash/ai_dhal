@@ -32,6 +32,14 @@ const CHANNEL_COLOR: Record<RedTeamChatChannel, string> = {
   system: "var(--text-muted)",
 };
 
+const PROGRESS_HIDE_MS = 800;
+
+function eventProgressPct(ev: RedTeamChatStreamEvent): number | null {
+  const raw = ev.args?.progress_pct;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+  return Math.max(0, Math.min(100, raw));
+}
+
 export type RedTeamChatPanelHandle = {
   startJob: () => Promise<void>;
   active: boolean;
@@ -60,11 +68,28 @@ export const RedTeamChatPanel = forwardRef<RedTeamChatPanelHandle, Props>(functi
   const [starting, setStarting] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [endedSession, setEndedSession] = useState<string | null>(null);
+  const [progressPct, setProgressPct] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamAbort = useRef<{ abort: () => void } | null>(null);
   const lastSeq = useRef(0);
+  const hideProgressTimer = useRef<number | null>(null);
 
   const active = !!sessionId && !["stopped", "ended", "failed"].includes(status);
+
+  function clearProgress(immediate = true) {
+    if (hideProgressTimer.current != null) {
+      window.clearTimeout(hideProgressTimer.current);
+      hideProgressTimer.current = null;
+    }
+    if (immediate) {
+      setProgressPct(null);
+      return;
+    }
+    hideProgressTimer.current = window.setTimeout(() => {
+      setProgressPct(null);
+      hideProgressTimer.current = null;
+    }, PROGRESS_HIDE_MS);
+  }
 
   useEffect(() => {
     onActiveChange?.(active);
@@ -79,7 +104,10 @@ export const RedTeamChatPanel = forwardRef<RedTeamChatPanelHandle, Props>(functi
   }, [lines]);
 
   useEffect(() => {
-    return () => streamAbort.current?.abort();
+    return () => {
+      streamAbort.current?.abort();
+      if (hideProgressTimer.current != null) window.clearTimeout(hideProgressTimer.current);
+    };
   }, []);
 
   function pushEvent(ev: RedTeamChatStreamEvent) {
@@ -102,24 +130,43 @@ export const RedTeamChatPanel = forwardRef<RedTeamChatPanelHandle, Props>(functi
         setError(ev.text || "Red-team chat error");
         setBusy(false);
         setPending(null);
+        clearProgress();
         break;
       case "ended":
         setStatus("ended");
         setBusy(false);
         setPending(null);
+        clearProgress();
         break;
       case "tool_call_pending":
+        if (hideProgressTimer.current != null) {
+          window.clearTimeout(hideProgressTimer.current);
+          hideProgressTimer.current = null;
+        }
         setBusy(true);
         if (ev.call_id) setPending({ callId: ev.call_id, tool: ev.tool || "tool", running: false });
         break;
       case "tool_call_approved":
+        if (hideProgressTimer.current != null) {
+          window.clearTimeout(hideProgressTimer.current);
+          hideProgressTimer.current = null;
+        }
         setPending((p) => (p && p.callId === ev.call_id ? { ...p, running: true } : p));
+        setProgressPct((p) => (p == null || p >= 100 ? 1 : p));
         break;
+      case "tool_progress": {
+        const pct = eventProgressPct(ev);
+        if (pct != null) setProgressPct(pct);
+        return;
+      }
       case "tool_call_stopped":
         setPending((p) => (p && p.callId === ev.call_id ? null : p));
+        clearProgress();
         break;
       case "tool_result":
         setPending((p) => (p && p.callId === ev.call_id ? null : p));
+        setProgressPct(100);
+        clearProgress(false);
         break;
       default:
         break;
@@ -157,6 +204,7 @@ export const RedTeamChatPanel = forwardRef<RedTeamChatPanelHandle, Props>(functi
     setPending(null);
     setEndedSession(null);
     setBusy(false);
+    clearProgress();
     setStarting(true);
     try {
       const session = await createRedTeamChatSession({
@@ -236,6 +284,7 @@ export const RedTeamChatPanel = forwardRef<RedTeamChatPanelHandle, Props>(functi
       setBusy(false);
       setPending(null);
       setSessionId(null);
+      clearProgress();
     }
   }
 
@@ -340,6 +389,24 @@ export const RedTeamChatPanel = forwardRef<RedTeamChatPanelHandle, Props>(functi
         )}
         <div ref={bottomRef} />
       </div>
+
+      {progressPct != null && (
+        <div className="flex items-center gap-2" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100} role="progressbar">
+          <span className="block h-0.5 min-w-0 flex-1 overflow-hidden" style={{ background: "var(--surface)" }}>
+            <span
+              className="block h-full"
+              style={{
+                width: `${progressPct}%`,
+                background: "var(--accent-ember)",
+                transition: "width 0.4s linear",
+              }}
+            />
+          </span>
+          <span className="mono micro shrink-0" style={{ color: "var(--accent-ember)" }}>
+            {Math.round(progressPct)}%
+          </span>
+        </div>
+      )}
 
       <form onSubmit={onSend} className="flex flex-wrap gap-2">
         <input

@@ -29,6 +29,7 @@ def _settings(tmp_path, **overrides):
 
 class _Args(BaseModel):
     target: str = ""
+    wordlist: str = ""
 
 
 class _FakeTool:
@@ -45,10 +46,11 @@ class _FakeTool:
 
 
 class _SlowTool:
-    def __init__(self, name="nmap_scan"):
+    def __init__(self, name="nmap_scan", delay=5):
         self.name = name
         self.description = "slow tool"
         self.args_schema = _Args
+        self.delay = delay
         self.started = False
         self.cancelled = False
         self.completed = False
@@ -56,7 +58,7 @@ class _SlowTool:
     async def ainvoke(self, payload):
         self.started = True
         try:
-            await asyncio.sleep(5)
+            await asyncio.sleep(self.delay)
         except asyncio.CancelledError:
             self.cancelled = True
             raise
@@ -246,3 +248,79 @@ async def test_start_job_dedupes_previous_session(tmp_path):
     assert first.status == "stopped"
     assert second.status == "running"
     assert second.messages == []
+
+
+def _progress_events(session):
+    return [e for e in session.events if e.type == "tool_progress"]
+
+
+async def test_running_tool_emits_progress_then_100(tmp_path):
+    reg = SessionRegistry()
+    settings = _settings(tmp_path)
+    session = _running_session(reg, tmp_path)
+    inner = _SlowTool(delay=1.1)
+    wrapped = reg._wrap_tool(session, inner, settings)
+
+    task = asyncio.ensure_future(wrapped.coroutine(target="10.0.0.5"))
+    session.turn_task = task
+    await asyncio.sleep(0.05)
+    call_id = session.pending_call.call_id
+    await reg.decide_tool_call(session.id, call_id, "approve")
+    await asyncio.sleep(0.15)
+
+    mid = _progress_events(session)
+    assert mid, "expected at least one in-flight tool_progress event"
+    assert all(e.args and 1 <= int(e.args["progress_pct"]) <= 95 for e in mid)
+    assert all(e.args.get("mode") == "guess" for e in mid)
+    assert all(e.call_id == call_id for e in mid)
+
+    await task
+    finals = [e for e in _progress_events(session) if e.args and e.args.get("progress_pct") == 100]
+    assert finals
+    transcript = (session.store.root / "transcript.jsonl").read_text(encoding="utf-8")
+    assert "tool_progress" not in transcript
+    summary = reg._render_summary(session)
+    assert "tool_progress" not in summary
+
+
+async def test_wordlist_tool_progress_uses_list_total(tmp_path):
+    reg = SessionRegistry()
+    settings = _settings(tmp_path)
+    session = _running_session(reg, tmp_path)
+    inner = _SlowTool(name="gobuster_scan", delay=0.2)
+    wrapped = reg._wrap_tool(session, inner, settings)
+
+    task = asyncio.ensure_future(
+        wrapped.coroutine(target="10.0.0.5", wordlist="/usr/share/wordlists/dirb/common.txt")
+    )
+    session.turn_task = task
+    await asyncio.sleep(0.05)
+    await reg.decide_tool_call(session.id, session.pending_call.call_id, "approve")
+    await task
+
+    mid = [e for e in _progress_events(session) if e.args and int(e.args["progress_pct"]) < 100]
+    assert mid
+    assert any(e.args.get("mode") == "wordlist" and e.args.get("list_total") == 4614 for e in mid)
+
+
+async def test_stop_running_tool_does_not_emit_100(tmp_path):
+    reg = SessionRegistry()
+    settings = _settings(tmp_path)
+    session = _running_session(reg, tmp_path)
+    session.busy = True
+    inner = _SlowTool(delay=5)
+    wrapped = reg._wrap_tool(session, inner, settings)
+
+    task = asyncio.ensure_future(wrapped.coroutine(target="10.0.0.5"))
+    session.turn_task = task
+    await asyncio.sleep(0.05)
+    call_id = session.pending_call.call_id
+    await reg.decide_tool_call(session.id, call_id, "approve")
+    await asyncio.sleep(0.15)
+    await reg.decide_tool_call(session.id, call_id, "stop")
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    assert inner.cancelled is True
+    pcts = [e.args.get("progress_pct") for e in _progress_events(session) if e.args]
+    assert 100 not in pcts

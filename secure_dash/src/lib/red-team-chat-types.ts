@@ -19,6 +19,7 @@ export type RedTeamChatStreamEventType =
   | "tool_call_pending"
   | "tool_call_approved"
   | "tool_call_stopped"
+  | "tool_progress"
   | "tool_result";
 
 export type RedTeamChatSession = {
