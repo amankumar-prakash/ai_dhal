@@ -11,9 +11,11 @@ There is no tool denylist — safety is the human-in-the-loop approval gate.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Literal
@@ -34,6 +36,7 @@ EventType = Literal[
     "tool_call_pending",
     "tool_call_approved",
     "tool_call_stopped",
+    "tool_progress",
     "tool_result",
 ]
 Channel = Literal["user", "agent", "system", "tool"]
@@ -48,6 +51,7 @@ _CHANNEL_FOR_TYPE: dict[str, Channel] = {
     "tool_call_pending": "tool",
     "tool_call_approved": "tool",
     "tool_call_stopped": "tool",
+    "tool_progress": "tool",
     "tool_result": "tool",
 }
 
@@ -75,6 +79,7 @@ def _system_prompt_for(target: str | None) -> str:
     )
 
 _TOOL_RESULT_MAX = 200
+_PROGRESS_POLL_SEC = 1.0
 
 
 def _now() -> datetime:
@@ -217,7 +222,7 @@ class RedTeamChatSession:
         return ev
 
     def _append_transcript(self, ev: StreamEvent) -> None:
-        if self.store is None:
+        if self.store is None or ev.type == "tool_progress":
             return
         try:
             path = self.store.root / "transcript.jsonl"
@@ -225,6 +230,67 @@ class RedTeamChatSession:
                 fh.write(json.dumps(ev.as_dict(), default=str) + "\n")
         except Exception:  # noqa: BLE001 - transcript is best-effort
             pass
+
+
+async def _hexstrike_progress_fraction(settings: WorkerSettings, tool_name: str) -> float | None:
+    if settings.stub_hexstrike:
+        return None
+    try:
+        from app.adapters.hexstrike_client import list_processes
+        from app.adapters.tool_progress import tool_family
+
+        procs = await asyncio.wait_for(list_processes(settings), timeout=0.5)
+    except Exception:  # noqa: BLE001 - progress is best-effort
+        return None
+    family = tool_family(tool_name)
+    needle = family.lower()
+    for proc in procs:
+        cmd = str(proc.get("command") or "").lower()
+        tool = str(proc.get("tool") or "").lower()
+        if needle not in cmd and needle not in tool and tool_name.lower() not in cmd:
+            continue
+        frac = proc.get("progress")
+        if isinstance(frac, (int, float)):
+            return float(frac)
+    return None
+
+
+async def _poll_tool_progress(
+    session: RedTeamChatSession,
+    *,
+    call_id: str,
+    tool_name: str,
+    kwargs: dict[str, Any],
+    stop: asyncio.Event,
+    settings: WorkerSettings,
+) -> None:
+    from app.adapters.tool_progress import estimate_progress
+
+    start = time.monotonic()
+    last_pct = 0
+    while not stop.is_set():
+        elapsed = time.monotonic() - start
+        hs = await _hexstrike_progress_fraction(settings, tool_name)
+        est = estimate_progress(
+            tool_name,
+            kwargs,
+            elapsed,
+            prev_pct=last_pct,
+            hexstrike_fraction=hs,
+        )
+        if est.progress_pct != last_pct:
+            last_pct = est.progress_pct
+            session.emit(
+                "tool_progress",
+                f"{tool_name} {est.progress_pct}%",
+                call_id=call_id,
+                tool=tool_name,
+                args=est.as_args(),
+            )
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=_PROGRESS_POLL_SEC)
+        except asyncio.TimeoutError:
+            continue
 
 
 class SessionRegistry:
@@ -511,9 +577,38 @@ class SessionRegistry:
                     return await inner.ainvoke(kwargs)
                 return inner.invoke(kwargs)
 
+            from app.adapters.tool_progress import estimate_progress
+
             inner_task = asyncio.ensure_future(_invoke())
             pending.running_task = inner_task
-            result = await inner_task
+            poller_stop = asyncio.Event()
+            poller_task = asyncio.create_task(
+                _poll_tool_progress(
+                    session,
+                    call_id=call_id,
+                    tool_name=tool_name,
+                    kwargs=kwargs,
+                    stop=poller_stop,
+                    settings=settings,
+                )
+            )
+            try:
+                result = await inner_task
+            finally:
+                poller_stop.set()
+                if not poller_task.done():
+                    poller_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await poller_task
+
+            done_est = estimate_progress(tool_name, kwargs, 0, done=True)
+            session.emit(
+                "tool_progress",
+                f"{tool_name} {done_est.progress_pct}%",
+                call_id=call_id,
+                tool=tool_name,
+                args=done_est.as_args(),
+            )
 
             raw_text = result if isinstance(result, str) else json.dumps(result, default=str)
             parsed = parse_tool_output(result)
