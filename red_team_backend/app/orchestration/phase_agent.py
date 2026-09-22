@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable
 from app.orchestration.artifact_store import JobArtifactStore, empty_facts, merge_facts
 from app.orchestration.compress import build_phase_rollup, build_tool_summary
 from app.orchestration.phases import PhaseSpec
+from app.orchestration.resource_monitor import ResourceSampler
 from app.orchestration.tool_agent import run_tool_agent
 from app.settings import WorkerSettings
 
@@ -27,6 +28,7 @@ async def run_phase(
     store: JobArtifactStore,
     mcp_tools: list[Any],
     on_progress: ProgressCb | None = None,
+    sampler: ResourceSampler | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Execute tools in phase order. Returns (reporter tool calls, rollup).
 
@@ -39,6 +41,7 @@ async def run_phase(
     max_tools_job = settings.max_tools_per_job
     max_tools_phase = settings.max_tools_per_phase
 
+    store.log_event("phase_start", phase=phase.name, tools=len(phase.tools))
     if on_progress:
         await on_progress("thinking", f"Phase {phase.name}: starting", {"phase": phase.name})
 
@@ -65,6 +68,7 @@ async def run_phase(
                 mcp_tools=mcp_tools,
                 prior_facts=prior_facts,
                 on_progress=on_progress,
+                sampler=sampler,
             )
         except asyncio.CancelledError:
             # Job wall cancel: tool_agent already wrote raw/summary — fold it into this phase.
@@ -109,6 +113,13 @@ async def run_phase(
                 settings=settings,
             )
             store.write_rollup(phase.name, rollup)
+            store.log_event(
+                "phase_end",
+                phase=phase.name,
+                status="cancelled",
+                tools_run=len(tools_run),
+                tools_skipped=len(rollup.get("tools_skipped") or []),
+            )
             raise
         except Exception as exc:  # noqa: BLE001
             log.exception("phase %s tool %s failed; continuing", phase.name, spec.logical_name)
@@ -204,6 +215,13 @@ async def run_phase(
         settings=settings,
     )
     store.write_rollup(phase.name, rollup)
+    store.log_event(
+        "phase_end",
+        phase=phase.name,
+        status="completed",
+        tools_run=len(tools_run),
+        tools_skipped=len(tools_skipped),
+    )
 
     if on_progress:
         await on_progress(

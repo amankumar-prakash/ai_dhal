@@ -122,7 +122,7 @@ class JobPatch(BaseModel):
 
 
 class JobProgressCreate(BaseModel):
-    kind: Literal["thinking", "tool", "process", "status"]
+    kind: Literal["thinking", "tool", "process", "status", "resource", "system"]
     message: str
     meta: dict[str, Any] = Field(default_factory=dict)
 

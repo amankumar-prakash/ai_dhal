@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -44,8 +47,15 @@ def merge_facts(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any
 
 
 class JobArtifactStore:
-    def __init__(self, root: str | Path, job_id: str) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        job_id: str,
+        *,
+        event_log_enabled: bool = True,
+    ) -> None:
         self.job_id = str(job_id)
+        self.event_log_enabled = event_log_enabled
         self.root = Path(root) / self.job_id
         self.tools_dir = self.root / "tools"
         self.phases_dir = self.root / "phases"
@@ -58,6 +68,38 @@ class JobArtifactStore:
     @property
     def context_path(self) -> Path:
         return self.root / "job.context.json"
+
+    @property
+    def event_log_path(self) -> Path:
+        return self.root / "job.log"
+
+    @property
+    def resource_log_path(self) -> Path:
+        return self.root / "job.resources.log"
+
+    def log_event(self, event: str, **fields: Any) -> None:
+        """Append a structured JSONL record to ``job.log`` and the app logger.
+
+        Best-effort: never raises so a logging hiccup cannot fail a scan.
+        """
+        record = {"ts": _now(), "job_id": self.job_id, "event": event, **fields}
+        if self.event_log_enabled:
+            try:
+                with self.event_log_path.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(record, default=str) + "\n")
+            except OSError as exc:  # pragma: no cover - disk issues shouldn't kill a job
+                log.warning("job.log write failed for %s: %s", self.job_id, exc)
+        extras = " ".join(f"{k}={v}" for k, v in fields.items())
+        log.info("job=%s %s %s", self.job_id, event, extras)
+
+    def log_resource_sample(self, sample: dict[str, Any]) -> None:
+        """Append a resource sample to ``job.resources.log`` (best-effort)."""
+        record = {"ts": _now(), "job_id": self.job_id, **sample}
+        try:
+            with self.resource_log_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, default=str) + "\n")
+        except OSError as exc:  # pragma: no cover
+            log.warning("job.resources.log write failed for %s: %s", self.job_id, exc)
 
     def default_context(self) -> dict[str, Any]:
         return {

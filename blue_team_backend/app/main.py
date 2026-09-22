@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 
+from app.logging_setup import configure_logging
 from app.routers.jobs import router as jobs_router
 from app.routers.cai_chat import router as cai_chat_router
 from app.settings import get_settings
+
+configure_logging("blue_team_backend")
 
 app = FastAPI(title="Blue Team Backend", version="0.1.0")
 app.include_router(jobs_router)

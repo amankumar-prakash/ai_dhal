@@ -43,6 +43,23 @@ class WorkerSettings(BaseSettings):
     # 0 = no job wall timeout (run until phases finish or the job is cancelled)
     orchestration_timeout_seconds: int = 0
 
+    # Logging + resource observability
+    log_level: str = "INFO"
+    log_dir: str = "run"
+    job_log_enabled: str = "1"
+    resource_sample_enabled: str = "1"
+    resource_sample_interval_seconds: float = 5.0
+    # Cap Torch/OpenMP threads for the LLMLingua compressor (0 = leave default).
+    max_cpu_threads: int = 0
+
+    @property
+    def use_job_log(self) -> bool:
+        return self.job_log_enabled.strip() in {"1", "true", "True", "yes"}
+
+    @property
+    def use_resource_sampler(self) -> bool:
+        return self.resource_sample_enabled.strip() in {"1", "true", "True", "yes"}
+
     @property
     def stub_llm(self) -> bool:
         return self.llm_stub.strip() in {"1", "true", "True", "yes"}

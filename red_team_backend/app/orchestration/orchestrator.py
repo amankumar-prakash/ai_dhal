@@ -11,6 +11,8 @@ from app.orchestration.compress import update_job_context
 from app.orchestration.phase_agent import run_phase
 from app.orchestration.phases import RECON_PHASES, phase_by_name
 from app.orchestration.report import finalize_scan_report, scan_report_tool_call
+from app.orchestration.resource_monitor import ResourceSampler
+from app.job_runtime import JobCancelled
 from app.reporters.api_reporter import ApiReporter
 from app.settings import WorkerSettings
 
@@ -45,7 +47,11 @@ async def run_recon(
 
     job_id = str(job["job_id"])
     scan_host = _recon_host(target)
-    store = JobArtifactStore(settings.artifact_root, job_id)
+    store = JobArtifactStore(
+        settings.artifact_root,
+        job_id,
+        event_log_enabled=settings.use_job_log,
+    )
     ctx = store.read_context()
     ctx["target"] = target
     ctx["scan_host"] = scan_host
@@ -70,6 +76,7 @@ async def run_recon(
     client = create_mcp_client(settings)
     all_calls: list[dict[str, Any]] = []
     job_timed_out = False
+    sampler = ResourceSampler(store, settings)
 
     async def _drive() -> None:
         async with client.session("hexstrike-ai") as session:
@@ -96,6 +103,7 @@ async def run_recon(
                     store=store,
                     mcp_tools=mcp_tools,
                     on_progress=on_progress,
+                    sampler=sampler,
                 )
                 all_calls.extend(calls)
 
@@ -123,37 +131,82 @@ async def run_recon(
                         )
 
     wall = int(settings.orchestration_timeout_seconds or 0)
-    try:
-        if wall > 0:
-            await asyncio.wait_for(_drive(), timeout=wall)
-        else:
-            await _drive()
-    except asyncio.TimeoutError:
-        job_timed_out = True
-        log.warning(
-            "orchestration wall timeout after %ss for job %s — finalizing partial report",
-            wall,
-            job_id,
+    async with sampler:
+        store.log_event("job_start", target=target, host=scan_host, wall_timeout=wall)
+        try:
+            if wall > 0:
+                await asyncio.wait_for(_drive(), timeout=wall)
+            else:
+                await _drive()
+        except asyncio.TimeoutError:
+            job_timed_out = True
+            log.warning(
+                "orchestration wall timeout after %ss for job %s — finalizing partial report",
+                wall,
+                job_id,
+            )
+            await on_progress(
+                "status",
+                f"Job wall time ({wall}s) reached — saving scan report from completed tools",
+                {"timed_out": True},
+            )
+        except (asyncio.CancelledError, JobCancelled):
+            store.log_event("job_end", status="cancelled", timed_out=False)
+            raise
+        except Exception as exc:
+            store.log_event(
+                "job_end",
+                status="failed",
+                timed_out=False,
+                error=str(exc)[:500],
+            )
+            raise
+
+        store.log_event("summarize_start", timed_out=job_timed_out)
+        with sampler.span("summarize") as sp:
+            markdown = finalize_scan_report(
+                store,
+                timed_out=job_timed_out,
+                timeout_note=(
+                    f"EST/job wall time reached after {wall}s; scan halted before completion"
+                    if job_timed_out
+                    else None
+                ),
+            )
+        store.log_event(
+            "summarize_end",
+            duration_ms=sp.duration_ms(),
+            cpu_peak=sp.cpu_peak,
+            rss_peak_mb=sp.rss_peak_mb,
+            system_cpu_peak=sp.sys_cpu_peak,
+            system_memory_peak=sp.sys_mem_peak,
+            bytes=len(markdown.encode()),
         )
+        all_calls.append(scan_report_tool_call(markdown, timed_out=job_timed_out))
         await on_progress(
             "status",
-            f"Job wall time ({wall}s) reached — saving scan report from completed tools",
-            {"timed_out": True},
+            "Scan report ready (Markdown)",
+            {"report": "scan_report.md", "timed_out": job_timed_out, "bytes": len(markdown.encode())},
         )
-
-    markdown = finalize_scan_report(
-        store,
-        timed_out=job_timed_out,
-        timeout_note=(
-            f"EST/job wall time reached after {wall}s; scan halted before completion"
-            if job_timed_out
-            else None
-        ),
-    )
-    all_calls.append(scan_report_tool_call(markdown, timed_out=job_timed_out))
-    await on_progress(
-        "status",
-        "Scan report ready (Markdown)",
-        {"report": "scan_report.md", "timed_out": job_timed_out, "bytes": len(markdown.encode())},
-    )
+        if sampler.enabled:
+            await on_progress(
+                "resource",
+                f"Summarization: peak CPU {sp.cpu_peak:.0f}%, RSS {sp.rss_peak_mb:.0f}MB, "
+                f"{sp.duration_ms() / 1000:.1f}s",
+                {
+                    "activity": "summarize",
+                    "cpu_peak": sp.cpu_peak,
+                    "rss_peak_mb": sp.rss_peak_mb,
+                    "system_cpu_peak": sp.sys_cpu_peak,
+                    "system_memory_peak": sp.sys_mem_peak,
+                    "duration_ms": sp.duration_ms(),
+                },
+            )
+        store.log_event(
+            "job_end",
+            status="partial" if job_timed_out else "completed",
+            timed_out=job_timed_out,
+            tools=len(all_calls),
+            phases=len(store.read_context().get("phases_completed") or []),
+        )
     return all_calls
