@@ -11,6 +11,7 @@ export function kindTone(kind: string): string {
   if (kind === "tool") return "var(--accent-ember)";
   if (kind === "process") return "var(--text-secondary)";
   if (kind === "status") return "var(--text-primary)";
+  if (kind === "resource" || kind === "system") return "var(--severity-info)";
   return "var(--text-muted)";
 }
 

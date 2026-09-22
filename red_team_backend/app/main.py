@@ -1,9 +1,12 @@
 from fastapi import FastAPI
 
+from app.logging_setup import configure_logging
 from app.routers.jobs import router as jobs_router
 from app.routers.red_team_chat import router as red_team_chat_router
 from app.routers.hexstrike_test import router as hexstrike_test_router
 from app.settings import get_settings
+
+configure_logging("red_team_backend")
 
 app = FastAPI(title="Red Team Backend", version="0.1.0")
 app.include_router(jobs_router)

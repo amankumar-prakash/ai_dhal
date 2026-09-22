@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from app.orchestration.artifact_store import JobArtifactStore
 from app.orchestration.compress import build_tool_summary, compress_for_llm, estimate_tokens
 from app.orchestration.model_context import tool_schema_text
 from app.orchestration.phases import ToolSpec
+from app.orchestration.resource_monitor import ResourceSampler, SpanPeak
 from app.orchestration.tool_output import parse_tool_output
 from app.settings import WorkerSettings
 
@@ -257,6 +259,7 @@ def _persist_from_capture(
             "method": capture.llm_compress.get("method"),
             "origin_tokens": capture.llm_compress.get("origin_tokens"),
             "compressed_tokens": capture.llm_compress.get("compressed_tokens"),
+            "duration_ms": capture.llm_compress.get("duration_ms", 0),
             "model": capture.llm_compress.get("model"),
             "window": capture.llm_compress.get("window"),
             "trigger": capture.llm_compress.get("trigger"),
@@ -276,6 +279,7 @@ async def run_tool_agent(
     mcp_tools: list[Any],
     prior_facts: dict[str, Any],
     on_progress: ProgressCb | None = None,
+    sampler: ResourceSampler | None = None,
 ) -> dict[str, Any]:
     """Run one tool agent; persist raw+summary; return reporter-shaped tool call."""
     from langchain.agents import create_agent
@@ -376,50 +380,102 @@ async def run_tool_agent(
         started_at=started,
     )
 
+    store.log_event(
+        "tool_start", tool=spec.logical_name, phase=phase, command=command_summary[:300]
+    )
+    span_cm = (
+        sampler.span(spec.logical_name)
+        if sampler is not None
+        else contextlib.nullcontext(SpanPeak(spec.logical_name))
+    )
+
+    async def _emit_finish(persisted: dict[str, Any], finished_timed_out: bool) -> None:
+        compression = persisted.get("llm_compress") or (
+            (persisted.get("summary") or {}).get("token_stats") or {}
+        )
+        store.log_event(
+            "tool_end",
+            tool=spec.logical_name,
+            phase=phase,
+            success=bool((persisted.get("output") or {}).get("success")),
+            timed_out=finished_timed_out,
+            duration_ms=sp.duration_ms(),
+            cpu_peak=round(sp.cpu_peak, 1),
+            rss_peak_mb=round(sp.rss_peak_mb, 1),
+            system_cpu_peak=round(sp.sys_cpu_peak, 1),
+            system_memory_peak=round(sp.sys_mem_peak, 1),
+            compression_method=compression.get("method"),
+            compression_origin_tokens=compression.get("origin_tokens"),
+            compression_tokens=compression.get("compressed_tokens"),
+            compression_duration_ms=compression.get("duration_ms", 0),
+        )
+        if on_progress and sampler is not None and sampler.enabled:
+            await on_progress(
+                "resource",
+                f"{spec.logical_name}: peak CPU {sp.cpu_peak:.0f}%, RSS {sp.rss_peak_mb:.0f}MB, "
+                f"{sp.duration_ms() / 1000:.1f}s",
+                {
+                    "activity": spec.logical_name,
+                    "phase": phase,
+                    "cpu_peak": sp.cpu_peak,
+                    "rss_peak_mb": sp.rss_peak_mb,
+                    "system_cpu_peak": sp.sys_cpu_peak,
+                    "system_memory_peak": sp.sys_mem_peak,
+                    "duration_ms": sp.duration_ms(),
+                },
+            )
+
     agent = create_agent(model, [bound_tool], system_prompt=system)
     result: Any
-    try:
-        result = await agent.ainvoke({"messages": [{"role": "user", "content": user}]})
-    except asyncio.CancelledError:
-        if capture.parsed is not None and not capture.summary_written:
-            _persist_from_capture(
-                capture=capture,
-                store=store,
+    with span_cm as sp:
+        try:
+            result = await agent.ainvoke({"messages": [{"role": "user", "content": user}]})
+        except asyncio.CancelledError:
+            if capture.parsed is not None and not capture.summary_written:
+                _persist_from_capture(
+                    capture=capture,
+                    store=store,
+                    phase=phase,
+                    tool_name=spec.logical_name,
+                    target=target,
+                    args_hint=args_hint,
+                    command_summary=command_summary,
+                    settings=settings,
+                    started_at=started,
+                )
+            else:
+                _persist_result(
+                    store=store,
+                    phase=phase,
+                    tool_name=spec.logical_name,
+                    target=target,
+                    args=args_hint,
+                    stdout="",
+                    stderr="Cancelled before tool completed",
+                    success=False,
+                    exit_code=130,
+                    command_summary=command_summary,
+                    settings=settings,
+                    started_at=started,
+                    timed_out=True,
+                    partial_results=False,
+                )
+            store.log_event(
+                "tool_cancelled",
+                tool=spec.logical_name,
                 phase=phase,
-                tool_name=spec.logical_name,
-                target=target,
-                args_hint=args_hint,
-                command_summary=command_summary,
-                settings=settings,
-                started_at=started,
+                duration_ms=sp.duration_ms(),
             )
-        else:
-            _persist_result(
-                store=store,
-                phase=phase,
-                tool_name=spec.logical_name,
-                target=target,
-                args=args_hint,
-                stdout="",
-                stderr="Cancelled before tool completed",
-                success=False,
-                exit_code=130,
-                command_summary=command_summary,
-                settings=settings,
-                started_at=started,
-                timed_out=True,
-                partial_results=False,
-            )
-        if on_progress:
-            await on_progress(
-                "tool",
-                f"{spec.logical_name} cancelled — partial report saved",
-                {"phase": phase, "timed_out": True},
-            )
-        raise
-    except Exception as exc:  # noqa: BLE001
-        log.exception("tool agent %s failed", spec.logical_name)
-        result = {"messages": [], "error": str(exc)}
+            if on_progress:
+                await on_progress(
+                    "tool",
+                    f"{spec.logical_name} cancelled — partial report saved",
+                    {"phase": phase, "timed_out": True},
+                )
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.exception("tool agent %s failed", spec.logical_name)
+            result = {"messages": [], "error": str(exc)}
 
     if capture.parsed is not None:
         persisted = _persist_from_capture(
@@ -441,6 +497,7 @@ async def run_tool_agent(
                 f"{spec.logical_name}{suffix}",
                 {"phase": phase, "timed_out": timed_out, "seq": persisted["summary"].get("seq")},
             )
+        await _emit_finish(persisted, timed_out)
         return persisted
 
     from app.pipelines.task_discovery import extract_tool_calls
@@ -512,4 +569,5 @@ async def run_tool_agent(
             {"phase": phase, "timed_out": timed_out, "seq": persisted["summary"].get("seq")},
         )
 
+    await _emit_finish(persisted, timed_out)
     return persisted

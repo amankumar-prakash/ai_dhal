@@ -3,6 +3,10 @@ services:
     build: ./api_service
     ports:
       - "8000:8000"
+    cpus: ${API_CPUS:-1}
+    mem_limit: ${API_MEM_LIMIT:-1g}
+    mem_reservation: ${API_MEM_RESERVATION:-256m}
+    pids_limit: ${SERVICE_PIDS_LIMIT:-512}
     # Root .env is source of truth for Supabase URL/keys (avoid shell overrides).
     env_file: .env
     environment:
@@ -27,6 +31,10 @@ services:
       dockerfile: red_team_backend/Dockerfile
     ports:
       - "8001:8001"
+    cpus: ${RED_CPUS:-2}
+    mem_limit: ${RED_MEM_LIMIT:-3g}
+    mem_reservation: ${RED_MEM_RESERVATION:-512m}
+    pids_limit: ${SERVICE_PIDS_LIMIT:-512}
     env_file: .env
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -53,6 +61,18 @@ services:
       MAX_TOOLS_PER_JOB: ${MAX_TOOLS_PER_JOB:-24}
       MAX_TOOLS_PER_PHASE: ${MAX_TOOLS_PER_PHASE:-8}
       MAX_PHASE_LOOPS: ${MAX_PHASE_LOOPS:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_DIR: ${LOG_DIR:-/tmp/ai_dhal/logs}
+      LOG_MAX_BYTES: ${LOG_MAX_BYTES:-10485760}
+      LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-5}
+      JOB_LOG_ENABLED: ${JOB_LOG_ENABLED:-1}
+      RESOURCE_SAMPLE_ENABLED: ${RESOURCE_SAMPLE_ENABLED:-1}
+      RESOURCE_SAMPLE_INTERVAL_SECONDS: ${RESOURCE_SAMPLE_INTERVAL_SECONDS:-5}
+      MAX_CPU_THREADS: ${MAX_CPU_THREADS:-2}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
+      MKL_NUM_THREADS: ${MKL_NUM_THREADS:-2}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-2}
+      NUMEXPR_NUM_THREADS: ${NUMEXPR_NUM_THREADS:-2}
       # CAI disabled
       # CAI_WORKDIR: ${CAI_WORKDIR:-/cai}
       # CAI_STUB: ${CAI_STUB:-0}
@@ -78,6 +98,10 @@ services:
     build: ./blue_team_backend
     ports:
       - "8002:8002"
+    cpus: ${BLUE_CPUS:-2}
+    mem_limit: ${BLUE_MEM_LIMIT:-2g}
+    mem_reservation: ${BLUE_MEM_RESERVATION:-512m}
+    pids_limit: ${SERVICE_PIDS_LIMIT:-512}
     env_file: .env
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -96,6 +120,18 @@ services:
       CAI_AGENT_TYPE: ${CAI_AGENT_TYPE_BLUE:-bug_bounter_agent}
       CAI_CONTAINER_VENV: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
       UV_PROJECT_ENVIRONMENT: ${CAI_CONTAINER_VENV:-/var/cache/cai-venv}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_DIR: ${LOG_DIR:-/tmp/ai_dhal/logs}
+      LOG_MAX_BYTES: ${LOG_MAX_BYTES:-10485760}
+      LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-5}
+      JOB_LOG_ENABLED: ${JOB_LOG_ENABLED:-1}
+      RESOURCE_SAMPLE_ENABLED: ${RESOURCE_SAMPLE_ENABLED:-1}
+      RESOURCE_SAMPLE_INTERVAL_SECONDS: ${RESOURCE_SAMPLE_INTERVAL_SECONDS:-5}
+      MAX_CPU_THREADS: ${MAX_CPU_THREADS:-2}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
+      MKL_NUM_THREADS: ${MKL_NUM_THREADS:-2}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-2}
+      NUMEXPR_NUM_THREADS: ${NUMEXPR_NUM_THREADS:-2}
       # No DATABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY
     volumes:
       - ${CAI_HOST_PATH:-../cai_pentesting}:/cai
@@ -114,9 +150,17 @@ services:
     build: ./hexstrike_server
     ports:
       - "8005:8005"
+    cpus: ${HEXSTRIKE_CPUS:-2}
+    mem_limit: ${HEXSTRIKE_MEM_LIMIT:-2g}
+    mem_reservation: ${HEXSTRIKE_MEM_RESERVATION:-512m}
+    pids_limit: ${HEXSTRIKE_PIDS_LIMIT:-1024}
     environment:
       PYTHONUNBUFFERED: "1"
       HEXSTRIKE_PORT: "8005"
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
+      MKL_NUM_THREADS: ${MKL_NUM_THREADS:-2}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-2}
+      NUMEXPR_NUM_THREADS: ${NUMEXPR_NUM_THREADS:-2}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8005/health"]
       interval: 15s

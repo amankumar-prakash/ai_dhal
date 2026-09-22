@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 from app.orchestration.artifact_store import empty_facts
@@ -98,6 +99,16 @@ def _get_compressor(settings: WorkerSettings):
     if _compressor is not None:
         return _compressor
     try:
+        max_threads = int(getattr(settings, "max_cpu_threads", 0) or 0)
+        if max_threads > 0:
+            try:
+                import torch
+
+                torch.set_num_threads(max_threads)
+                log.info("capped Torch threads to %s for LLMLingua compressor", max_threads)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("torch.set_num_threads unavailable: %s", exc)
+
         from llmlingua import PromptCompressor
 
         _compressor = PromptCompressor(
@@ -160,28 +171,46 @@ def compress_text(text: str, *, target_token: int, settings: WorkerSettings | No
             "origin_tokens": origin,
             "compressed_tokens": origin,
             "method": "passthrough",
+            "duration_ms": 0,
         }
 
+    t0 = time.perf_counter()
     compressor = _get_compressor(settings)
     if compressor is not None:
         try:
             compressed = _lingua_compress(compressor, original, cap)
             compressed = truncate_to_tokens(compressed, cap)
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            log.info(
+                "compress method=llmlingua2 origin=%s cap=%s duration_ms=%s",
+                origin,
+                cap,
+                duration_ms,
+            )
             return {
                 "compressed_prompt": compressed,
                 "origin_tokens": origin,
                 "compressed_tokens": estimate_tokens(compressed),
                 "method": "llmlingua2",
+                "duration_ms": duration_ms,
             }
         except Exception as exc:  # noqa: BLE001
             log.warning("LLMLingua-2 compress failed, truncating: %s", exc)
 
     truncated = truncate_to_tokens(original, cap)
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+    log.info(
+        "compress method=heuristic_truncate origin=%s cap=%s duration_ms=%s",
+        origin,
+        cap,
+        duration_ms,
+    )
     return {
         "compressed_prompt": truncated,
         "origin_tokens": origin,
         "compressed_tokens": estimate_tokens(truncated),
         "method": "heuristic_truncate",
+        "duration_ms": duration_ms,
     }
 
 
@@ -271,6 +300,7 @@ def build_tool_summary(
             "compressed_tokens": compressed["compressed_tokens"],
             "cap": settings.tool_summary_tokens,
             "method": compressed["method"],
+            "duration_ms": compressed.get("duration_ms", 0),
         },
     }
 
@@ -313,6 +343,7 @@ def build_phase_rollup(
             "compressed_tokens": compressed["compressed_tokens"],
             "cap": settings.phase_rollup_tokens,
             "method": compressed["method"],
+            "duration_ms": compressed.get("duration_ms", 0),
         },
     }
 
@@ -341,6 +372,7 @@ def update_job_context(
         "compressed_tokens": compressed["compressed_tokens"],
         "cap": settings.job_context_tokens,
         "method": compressed["method"],
+        "duration_ms": compressed.get("duration_ms", 0),
     }
     return ctx
 
